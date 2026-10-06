@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OficinaMecanica.OS.Domain/OficinaMecanica.OS.Domain.csproj" />
+    <Project Path="src/OficinaMecanica.OS.Application/OficinaMecanica.OS.Application.csproj" />
+    <Project Path="src/OficinaMecanica.OS.Infrastructure/OficinaMecanica.OS.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OficinaMecanica.OS.UnitTests/OficinaMecanica.OS.UnitTests.csproj" />
+    <Project Path="tests/OficinaMecanica.OS.IntegrationTests/OficinaMecanica.OS.IntegrationTests.csproj" />
+  </Folder>
+</Solution>
