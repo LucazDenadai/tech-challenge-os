@@ -26,7 +26,7 @@ public class AbrirOrdemServicoUseCase(
             throw new InvalidOperationException("A filial informada está inativa.");
 
         var numero = await osRepository.GerarNumeroAsync(ct);
-        var os = new DomainOS(numero, request.ClienteId, request.VeiculoId, request.FilialId, request.Observacoes);
+        var os = new DomainOS(numero, request.ClienteId, request.VeiculoId, request.FilialId, request.Observacoes ?? string.Empty);
 
         await osRepository.AdicionarAsync(os, ct);
         await osRepository.SalvarAsync(ct);

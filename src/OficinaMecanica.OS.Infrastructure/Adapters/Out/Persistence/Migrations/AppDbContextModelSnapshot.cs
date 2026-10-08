@@ -276,6 +276,55 @@ namespace OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Migrations
                     b.ToTable("Veiculos", (string)null);
                 });
 
+            modelBuilder.Entity("OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Inbox.MensagemInbox", b =>
+                {
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Canal")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("CausationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CorrelationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("FilialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MessageType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OsId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Producer")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("RecebidaEmUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("MessageId");
+
+                    b.HasIndex("CorrelationId");
+
+                    b.ToTable("InboxMensagens", (string)null);
+                });
+
             modelBuilder.Entity("OficinaMecanica.OS.Domain.Entities.HistoricoStatusOS", b =>
                 {
                     b.HasOne("OficinaMecanica.OS.Domain.Entities.OrdemServico", null)

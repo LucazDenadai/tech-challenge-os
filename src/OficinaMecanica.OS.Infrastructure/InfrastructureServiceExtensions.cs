@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using OficinaMecanica.OS.Application.Ports.Out;
+using OficinaMecanica.OS.Infrastructure.Adapters.In.Messaging;
 using OficinaMecanica.OS.Infrastructure.Adapters.Out.Email;
 using OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence;
 using OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Repositories;
@@ -26,6 +27,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IVeiculoRepository, VeiculoRepository>();
         services.AddScoped<IUsuarioRepository, UsuarioRepository>();
         services.AddScoped<IFilialRepository, FilialRepository>();
+        services.AddScoped<IInboxRepository, InboxRepository>();
 
         services.AddScoped<ITokenService, JwtTokenService>();
 
@@ -35,6 +37,24 @@ public static class InfrastructureServiceExtensions
         else
             services.AddScoped<IEmailPort, EmailStub>();
 
+        return services;
+    }
+
+    // Consumidor dos canais da Saga (ADR-018). Desabilitado, nenhuma conexão é aberta.
+    public static IServiceCollection AddMensageria(this IServiceCollection services, IConfiguration configuration)
+    {
+        var secao = configuration.GetSection(RabbitMqOptions.Secao);
+        var opcoes = secao.Get<RabbitMqOptions>() ?? new RabbitMqOptions();
+        if (!opcoes.Enabled)
+            return services;
+
+        // Conexão autenticada: sem usuário e senha configurados o serviço não sobe (não usa guest/guest implícito).
+        if (string.IsNullOrWhiteSpace(opcoes.Username) || string.IsNullOrWhiteSpace(opcoes.Password))
+            throw new InvalidOperationException("RabbitMq:Username e RabbitMq:Password são obrigatórios quando RabbitMq:Enabled=true.");
+
+        services.Configure<RabbitMqOptions>(secao);
+        services.AddSingleton<EstadoConsumidorSaga>();
+        services.AddHostedService<ConsumidorSagaHostedService>();
         return services;
     }
 }
