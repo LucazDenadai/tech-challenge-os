@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/OficinaMecanica.OS.Domain/OficinaMecanica.OS.Domain.csproj" />
+    <Project Path="src/OficinaMecanica.OS.API/OficinaMecanica.OS.API.csproj" />
     <Project Path="src/OficinaMecanica.OS.Application/OficinaMecanica.OS.Application.csproj" />
     <Project Path="src/OficinaMecanica.OS.Infrastructure/OficinaMecanica.OS.Infrastructure.csproj" />
   </Folder>

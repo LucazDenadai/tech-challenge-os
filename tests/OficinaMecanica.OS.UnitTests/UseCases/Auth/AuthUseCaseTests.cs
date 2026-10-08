@@ -1,5 +1,4 @@
 using Moq;
-using OficinaMecanica.OS.Application.Exceptions;
 using OficinaMecanica.OS.Application.Ports.Out;
 using OficinaMecanica.OS.Application.UseCases.Auth;
 using OficinaMecanica.OS.Domain.Entities;
@@ -32,22 +31,38 @@ public class AuthUseCaseTests
     }
 
     [Fact]
-    public async Task LoginAsync_SenhaIncorreta_LancaInvalidOperationException()
+    public async Task LoginAsync_SenhaIncorreta_LancaUnauthorizedAccessException()
     {
         var usuario = new Usuario("Admin", "admin@email.com", "hash123", PerfilUsuario.Admin);
         _repoMock.Setup(r => r.ObterPorEmailAsync("admin@email.com", default)).ReturnsAsync(usuario);
         _tokenMock.Setup(t => t.VerificarSenha("errada", "hash123")).Returns(false);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             _sut.LoginAsync(new LoginRequest("admin@email.com", "errada")));
     }
 
     [Fact]
-    public async Task LoginAsync_UsuarioNaoEncontrado_LancaNotFoundException()
+    public async Task LoginAsync_UsuarioNaoEncontrado_LancaMesmaExcecaoQueSenhaIncorreta()
     {
         _repoMock.Setup(r => r.ObterPorEmailAsync("nao@existe.com", default)).ReturnsAsync((Usuario?)null);
 
-        await Assert.ThrowsAsync<NotFoundException>(() =>
+        var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             _sut.LoginAsync(new LoginRequest("nao@existe.com", "senha")));
+
+        Assert.Equal("Credenciais inválidas.", ex.Message);
+    }
+
+    [Fact]
+    public async Task LoginAsync_UsuarioDesativado_NaoEmiteToken()
+    {
+        var usuario = new Usuario("Admin", "admin@email.com", "hash123", PerfilUsuario.Admin);
+        usuario.Desativar();
+        _repoMock.Setup(r => r.ObterPorEmailAsync("admin@email.com", default)).ReturnsAsync(usuario);
+        _tokenMock.Setup(t => t.VerificarSenha("senha123", "hash123")).Returns(true);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            _sut.LoginAsync(new LoginRequest("admin@email.com", "senha123")));
+
+        _tokenMock.Verify(t => t.GerarToken(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 }

@@ -7,8 +7,7 @@ namespace OficinaMecanica.OS.IntegrationTests.Fixtures;
 
 public class PostgresFixture : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
-        .WithImage("postgres:16-alpine")
+    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine")
         .WithDatabase("os_test")
         .WithUsername("postgres")
         .WithPassword("postgres")
