@@ -22,6 +22,16 @@ public class Filial : EntityBase
         Nome = nome;
     }
 
+    // Id definido de fora: a filial de demonstração usa o mesmo Id nos seeds do OS e de Operações
+    // (emenda "Filiais em Operações" do ADR-015).
+    public Filial(Guid id, string codigo, string nome) : this(codigo, nome)
+    {
+        if (id == Guid.Empty)
+            throw new ArgumentException("O Id da filial não pode ser vazio.", nameof(id));
+
+        Id = id;
+    }
+
     public void Desativar()
     {
         Ativo = false;

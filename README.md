@@ -42,7 +42,7 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run --project src/OficinaMecanica.OS.A
 
 Swagger em `/os/swagger`, liveness em `/os/health` e readiness (banco e, se habilitado, RabbitMQ) em `/os/ready`.
 
-O seed cria a filial `FILIAL-DEMO`, os usuários `admin@`, `atendente@` e `mecanico@oficina.example` e dois clientes com veículo, sem dados pessoais reais.
+O seed cria a filial `FILIAL-DEMO` com `Id` fixo `378aeb39-37f6-43c1-9526-5b1a9fadd553`, o mesmo do seed de Operações, os usuários `admin@`, `atendente@` e `mecanico@oficina.example` e dois clientes com veículo, sem dados pessoais reais.
 
 ## API
 

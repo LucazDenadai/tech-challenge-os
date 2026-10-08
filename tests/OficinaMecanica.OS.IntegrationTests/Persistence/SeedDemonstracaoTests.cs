@@ -25,7 +25,7 @@ public class SeedDemonstracaoTests(PostgresFixture fixture)
             await SeedDemonstracao.ExecutarAsync(db, new HashFake(), Senha);
 
         await using var leitura = PostgresFixture.CriarContexto(conn);
-        Assert.Equal(1, await leitura.Filiais.CountAsync());
+        Assert.Equal(SeedDemonstracao.FilialDemoId, (await leitura.Filiais.SingleAsync()).Id);
         Assert.Equal(2, await leitura.Clientes.CountAsync());
         Assert.Equal(2, await leitura.Veiculos.CountAsync());
         Assert.Equal(
