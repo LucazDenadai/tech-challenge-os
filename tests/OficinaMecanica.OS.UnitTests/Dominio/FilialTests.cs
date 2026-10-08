@@ -22,6 +22,15 @@ public class FilialTests
     }
 
     [Fact]
+    public void Construtor_ComId_UsaOIdInformado()
+    {
+        var id = Guid.NewGuid();
+
+        Assert.Equal(id, new Filial(id, "COD", "Nome").Id);
+        Assert.Throws<ArgumentException>(() => new Filial(Guid.Empty, "COD", "Nome"));
+    }
+
+    [Fact]
     public void Desativar_MarcaInativa()
     {
         var filial = new Filial("COD", "Nome");

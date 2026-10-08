@@ -10,6 +10,8 @@ namespace OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Seed;
 public static class SeedDemonstracao
 {
     public const string CodigoFilial = "FILIAL-DEMO";
+    // Mesmo Id do seed de Operações (emenda "Filiais em Operações" do ADR-015), para os saldos da filial existirem lá.
+    public static readonly Guid FilialDemoId = Guid.Parse("378aeb39-37f6-43c1-9526-5b1a9fadd553");
 
     private static readonly (string Nome, string Email, PerfilUsuario Perfil)[] _usuarios =
     [
@@ -31,7 +33,7 @@ public static class SeedDemonstracao
             throw new InvalidOperationException("Senha dos usuários de demonstração não configurada (Seed:SenhaUsuarios).");
 
         if (!await db.Filiais.AnyAsync(f => f.Codigo == CodigoFilial, ct))
-            db.Filiais.Add(new Filial(CodigoFilial, "Filial Demonstração"));
+            db.Filiais.Add(new Filial(FilialDemoId, CodigoFilial, "Filial Demonstração"));
 
         foreach (var (nome, email, perfil) in _usuarios)
         {
