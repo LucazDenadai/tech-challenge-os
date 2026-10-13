@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using OficinaMecanica.OS.Application.Ports.Out;
+using OficinaMecanica.OS.Application.UseCases.Saga;
+using OficinaMecanica.OS.Infrastructure.Adapters.In.Agendamento;
 using OficinaMecanica.OS.Infrastructure.Adapters.In.Messaging;
 using OficinaMecanica.OS.Infrastructure.Adapters.Out.Email;
 using OficinaMecanica.OS.Infrastructure.Adapters.Out.Messaging;
@@ -34,6 +36,12 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<ITransacao, Transacao>();
 
         services.AddScoped<ITokenService, JwtTokenService>();
+
+        // Prazos da Saga (CARD-40b): não depende do broker, os comandos vão para a outbox.
+        var configuracaoSaga = configuration.GetSection(ConfiguracaoSaga.Secao).Get<ConfiguracaoSaga>() ?? new ConfiguracaoSaga();
+        services.AddSingleton(configuracaoSaga);
+        if (configuracaoSaga.VerificacaoHabilitada)
+            services.AddHostedService<PrazosSagaHostedService>();
 
         var usarEmailReal = configuration.GetValue<bool>("Smtp:Enabled");
         if (usarEmailReal)
