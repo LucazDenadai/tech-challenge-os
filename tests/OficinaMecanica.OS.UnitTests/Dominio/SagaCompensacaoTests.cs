@@ -47,6 +47,106 @@ public class SagaCompensacaoTests
         return saga;
     }
 
+    // ── Guardas: evento no estado errado ou de outro recurso não muda nada ─────
+
+    private static readonly Guid _outro = Guid.NewGuid();
+
+    // Mensagens atrasadas, duplicadas com outro messageId ou de outra execução/pagamento/reserva chegam de verdade
+    // em sistemas distribuídos; cada uma precisa ser recusada sem mexer na Saga.
+    private static readonly Dictionary<string, (EstadoSaga Estado, Func<SagaOrdemServico, bool> Acao)> _guardas = new()
+    {
+        ["diagnostico-rejeitado-fora"] = (EstadoSaga.RequestingQuote, s => s.RejeitarDiagnostico(C("x"), "m")),
+        ["orcamento-registrado-fora"] = (EstadoSaga.Diagnosing, s => s.RegistrarOrcamento(C("x"), _quote, 1, 100m, "BRL")),
+        ["orcamento-rejeitado-fora"] = (EstadoSaga.AwaitingApproval, s => s.RejeitarOrcamento(C("x"), "m")),
+        ["reserva-rejeitada-fora"] = (EstadoSaga.AwaitingPayment, s => s.RejeitarReserva(C("x"), "m")),
+        ["inicio-de-outra-execucao"] = (EstadoSaga.StartingExecution, s => s.RegistrarInicioExecucao(C("x"), _outro)),
+        ["inicio-fora"] = (EstadoSaga.InExecution, s => s.RegistrarInicioExecucao(C("x"), _execucao)),
+        ["conclusao-de-outra-execucao"] = (EstadoSaga.InExecution, s => s.ConcluirExecucao(C("x"), _outro)),
+        ["conclusao-fora"] = (EstadoSaga.AwaitingPayment, s => s.ConcluirExecucao(C("x"), _execucao)),
+        ["desconhecido-fora"] = (EstadoSaga.StartingExecution, s => s.RegistrarResultadoDesconhecido(C("x"), _pagamento, "m")),
+        ["desconhecido-de-outro-pagamento"] = (EstadoSaga.AwaitingPayment, s => s.RegistrarResultadoDesconhecido(C("x"), _outro, "m")),
+        ["recusa-fora"] = (EstadoSaga.StartingExecution, s => s.RecusarPagamento(C("x"), _pagamento, "m")),
+        ["recusa-de-outro-pagamento"] = (EstadoSaga.AwaitingPayment, s => s.RecusarPagamento(C("x"), _outro, "m")),
+        ["inicio-rejeitado-de-outra-execucao"] = (EstadoSaga.StartingExecution, s => s.RejeitarInicioExecucao(C("x"), _outro, "m")),
+        ["inicio-rejeitado-fora"] = (EstadoSaga.InExecution, s => s.RejeitarInicioExecucao(C("x"), _execucao, "m")),
+        ["falha-de-outra-execucao"] = (EstadoSaga.InExecution, s => s.FalharExecucao(C("x"), _outro, "m")),
+        ["falha-fora"] = (EstadoSaga.AwaitingPayment, s => s.FalharExecucao(C("x"), _execucao, "m")),
+        ["execucao-cancelada-fora"] = (EstadoSaga.InExecution, s => s.RegistrarCancelamentoExecucao(C("x"), _execucao)),
+        ["cancelamento-recusado-fora"] = (EstadoSaga.InExecution, s => s.RecusarCancelamentoExecucao(C("x"), _execucao, "m")),
+        ["liberacao-fora"] = (EstadoSaga.AwaitingPayment, s => s.RegistrarLiberacao(C("x"), _reserva)),
+        ["liberacao-de-outra-reserva"] = (EstadoSaga.AwaitingPayment, s => s.RegistrarLiberacao(C("x"), _outro)),
+        ["estorno-fora"] = (EstadoSaga.InExecution, s => s.RegistrarEstorno(C("x"), _pagamento)),
+        ["estorno-pendente-fora"] = (EstadoSaga.InExecution, s => s.RegistrarEstornoPendente(C("x"), _pagamento)),
+        ["estorno-falhou-fora"] = (EstadoSaga.InExecution, s => s.FalharEstorno(C("x"), _pagamento, "m")),
+        ["reserva-apos-encerramento-em-saga-ativa"] = (EstadoSaga.AwaitingPayment, s => s.RegistrarReservaAposEncerramento(C("x"), _outro)),
+        ["pagamento-apos-encerramento-em-saga-ativa"] = (EstadoSaga.AwaitingPayment, s => s.RegistrarPagamentoAposEncerramento(C("x"), _outro))
+    };
+
+    public static TheoryData<string> Guardas() => new(_guardas.Keys);
+
+    [Theory]
+    [MemberData(nameof(Guardas))]
+    public void EventoForaDoEstadoOuDeOutroRecurso_NaoMudaASaga(string caso)
+    {
+        var (estado, acao) = _guardas[caso];
+        var saga = Em(estado);
+        var transicoes = saga.Transicoes.Count;
+
+        Assert.False(acao(saga));
+
+        Assert.Equal(estado, saga.Estado);
+        Assert.Equal(transicoes, saga.Transicoes.Count);
+    }
+
+    [Fact]
+    public void ConfirmacoesNaCompensacao_DeOutroRecurso_NaoSeAplicam()
+    {
+        var saga = Em(EstadoSaga.InExecution);
+        saga.FalharExecucao(C("ExecutionFailed.v1"), _execucao, "Falha");
+
+        Assert.False(saga.RegistrarEstorno(C("x"), _outro));
+        Assert.False(saga.RegistrarEstornoPendente(C("x"), _outro));
+        Assert.False(saga.FalharEstorno(C("x"), _outro, "m"));
+        Assert.False(saga.RegistrarLiberacao(C("x"), _outro));
+        Assert.Equal(EstadoSaga.Compensating, saga.Estado);
+
+        // Liberação repetida depois de confirmada também não se aplica.
+        Assert.True(saga.RegistrarLiberacao(C("x"), _reserva));
+        Assert.False(saga.RegistrarLiberacao(C("x"), _reserva));
+    }
+
+    public static TheoryData<EstadoSaga, ComandoEtapa[]> ComandosPorEstado() => new()
+    {
+        { EstadoSaga.Diagnosing, [ComandoEtapa.Diagnostico] },
+        { EstadoSaga.RequestingQuote, [ComandoEtapa.Orcamento] },
+        { EstadoSaga.AwaitingApproval, [] },
+        { EstadoSaga.ReservingInventory, [ComandoEtapa.Reserva] },
+        { EstadoSaga.CreatingPayment, [ComandoEtapa.Pagamento] },
+        { EstadoSaga.AwaitingPayment, [] },
+        { EstadoSaga.StartingExecution, [ComandoEtapa.InicioExecucao] },
+        { EstadoSaga.InExecution, [] }
+    };
+
+    [Theory]
+    [MemberData(nameof(ComandosPorEstado))]
+    public void ComandosDaEtapa_SeguemOEstado(EstadoSaga estado, ComandoEtapa[] esperados)
+        => Assert.Equal(esperados, Em(estado).ComandosDaEtapa());
+
+    [Fact]
+    public void ComandosDaEtapa_DesviosETerminais()
+    {
+        var liberando = Em(EstadoSaga.AwaitingPayment);
+        liberando.RecusarPagamento(C("x"), _pagamento, "m");
+        var cancelandoExecucao = Em(EstadoSaga.InExecution);
+        cancelandoExecucao.SolicitarCancelamento("m");
+        var terminada = Em(EstadoSaga.Diagnosing);
+        terminada.SolicitarCancelamento("m");
+
+        Assert.Equal([ComandoEtapa.Liberacao], liberando.ComandosDaEtapa());
+        Assert.Equal([ComandoEtapa.CancelamentoExecucao], cancelandoExecucao.ComandosDaEtapa());
+        Assert.Empty(terminada.ComandosDaEtapa());
+    }
+
     // ── Pagamento recusado ou incerto ──────────────────────────────────────────
 
     [Fact]
