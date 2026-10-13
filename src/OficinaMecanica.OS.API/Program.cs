@@ -55,6 +55,7 @@ builder.Services.AddScoped<ObterOrdemServicoUseCase>();
 builder.Services.AddScoped<ConsultarStatusOSUseCase>();
 builder.Services.AddScoped<AtualizarStatusOSUseCase>();
 builder.Services.AddScoped<AcompanharOSUseCase>();
+builder.Services.AddScoped<ConsultarSagaUseCase>();
 builder.Services.AddScoped<ProcessarMensagemSagaUseCase>();
 
 // ── Autenticação: JWT (funcionários e clientes) e chave de API interna (Lambda) ─

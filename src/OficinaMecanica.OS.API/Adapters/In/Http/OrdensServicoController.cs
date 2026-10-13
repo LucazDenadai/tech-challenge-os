@@ -19,19 +19,22 @@ public class OrdensServicoController : ControllerBase
     private readonly ObterOrdemServicoUseCase _obterUseCase;
     private readonly ConsultarStatusOSUseCase _consultarStatusUseCase;
     private readonly AtualizarStatusOSUseCase _atualizarStatusUseCase;
+    private readonly ConsultarSagaUseCase _consultarSagaUseCase;
 
     public OrdensServicoController(
         AbrirOrdemServicoUseCase abrirUseCase,
         ListarOrdensServicoUseCase listarUseCase,
         ObterOrdemServicoUseCase obterUseCase,
         ConsultarStatusOSUseCase consultarStatusUseCase,
-        AtualizarStatusOSUseCase atualizarStatusUseCase)
+        AtualizarStatusOSUseCase atualizarStatusUseCase,
+        ConsultarSagaUseCase consultarSagaUseCase)
     {
         _abrirUseCase = abrirUseCase;
         _listarUseCase = listarUseCase;
         _obterUseCase = obterUseCase;
         _consultarStatusUseCase = consultarStatusUseCase;
         _atualizarStatusUseCase = atualizarStatusUseCase;
+        _consultarSagaUseCase = consultarSagaUseCase;
     }
 
     /// <summary>Lista as OS em andamento, da mais urgente (EmExecucao) para a menos (EmDiagnostico).</summary>
@@ -84,6 +87,15 @@ public class OrdensServicoController : ControllerBase
         return Ok(status.Historico.OrderBy(h => h.AlteradoEm).ToList());
     }
 
+    /// <summary>Estado da Saga da OS, referências de orçamento, reserva, pagamento e execução, e as transições.</summary>
+    /// <remarks>Lido só do banco do OS. Não traz dados do cliente.</remarks>
+    [HttpGet("{id:guid}/saga")]
+    [Authorize(Roles = "Admin,Atendente")]
+    [ProducesResponseType(typeof(SagaOrdemServicoResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ConsultarSaga(Guid id, CancellationToken ct)
+        => Ok(await _consultarSagaUseCase.ExecutarAsync(id, ct));
+
     /// <summary>Registra a entrega do veículo ao cliente (Finalizada → Entregue). Fora da Saga.</summary>
     /// <response code="422">OS não está Finalizada.</response>
     [HttpPost("{id:guid}/entrega")]
@@ -97,7 +109,8 @@ public class OrdensServicoController : ControllerBase
         return NoContent();
     }
 
-    /// <summary>Cancela a OS a partir de um status não terminal.</summary>
+    /// <summary>Cancela a OS a partir de um status não terminal e encerra a Saga.</summary>
+    /// <remarks>Ainda sem compensação: reserva e pagamento não são desfeitos (CARD-40b).</remarks>
     /// <response code="422">OS Finalizada, Entregue ou já Cancelada.</response>
     [HttpPost("{id:guid}/cancelamento")]
     [Authorize(Roles = "Admin,Atendente")]

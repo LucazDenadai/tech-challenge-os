@@ -281,6 +281,37 @@ public class OsApiTests : IAsyncLifetime
         return http;
     }
 
+    [Fact]
+    public async Task ConsultarSaga_AberturaEmDiagnosingECancelamentoEncerraASaga()
+    {
+        var saga = await CenarioSaga.AbrirOsAsync(_factory);
+        var http = await _factory.ClienteFuncionarioAsync(Atendente);
+
+        var aberta = await http.GetFromJsonAsync<JsonElement>($"/os/ordens-servico/{saga.OsId}/saga");
+        Assert.Equal(saga.CorrelationId, aberta.GetProperty("correlationId").GetGuid());
+        Assert.Equal("Diagnosing", aberta.GetProperty("estado").GetString());
+        Assert.False(aberta.GetProperty("terminada").GetBoolean());
+        Assert.False(aberta.TryGetProperty("clienteId", out _));
+
+        (await http.PostAsync($"/os/ordens-servico/{saga.OsId}/cancelamento", null)).EnsureSuccessStatusCode();
+
+        var cancelada = await http.GetFromJsonAsync<JsonElement>($"/os/ordens-servico/{saga.OsId}/saga");
+        Assert.Equal("Cancelled", cancelada.GetProperty("estado").GetString());
+        Assert.Equal("CancelamentoManual", cancelada.GetProperty("transicoes").EnumerateArray().Last().GetProperty("causa").GetString());
+    }
+
+    [Fact]
+    public async Task ConsultarSaga_MecanicoRecebe403EOsInexistente404()
+    {
+        var saga = await CenarioSaga.AbrirOsAsync(_factory);
+
+        var mecanico = await (await _factory.ClienteFuncionarioAsync(Mecanico)).GetAsync($"/os/ordens-servico/{saga.OsId}/saga");
+        var inexistente = await (await _factory.ClienteFuncionarioAsync(Atendente)).GetAsync($"/os/ordens-servico/{Guid.NewGuid()}/saga");
+
+        Assert.Equal(HttpStatusCode.Forbidden, mecanico.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, inexistente.StatusCode);
+    }
+
     private static async Task<(Guid ClienteId, Guid VeiculoId, Guid FilialId)> DadosDoSeedAsync(HttpClient http)
     {
         var cliente = (await http.GetFromJsonAsync<JsonElement>($"/os/clientes?busca={CpfSeed}")).EnumerateArray().Single();
