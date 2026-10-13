@@ -276,6 +276,116 @@ namespace OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Migrations
                     b.ToTable("Veiculos", (string)null);
                 });
 
+            modelBuilder.Entity("OficinaMecanica.OS.Domain.Saga.SagaOrdemServico", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AtualizadoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ClienteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CriadoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("ExecutionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("FilialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MoedaDiagnostico")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("MoedaOrcamento")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("Motivo")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("OsId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PaymentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("PrecoSnapshotEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("QuoteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("QuoteVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("ReservationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("ValorOrcamento")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)");
+
+                    b.Property<Guid>("VeiculoId")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("Versao")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OsId")
+                        .IsUnique();
+
+                    b.ToTable("SagasOrdemServico", (string)null);
+                });
+
+            modelBuilder.Entity("OficinaMecanica.OS.Domain.Saga.TransicaoSaga", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Causa")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("Em")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("EstadoAnterior")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("EstadoNovo")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Motivo")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("SagaId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SagaId");
+
+                    b.ToTable("SagaTransicoes", (string)null);
+                });
+
             modelBuilder.Entity("OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Inbox.MensagemInbox", b =>
                 {
                     b.Property<Guid>("MessageId")
@@ -325,6 +435,55 @@ namespace OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Migrations
                     b.ToTable("InboxMensagens", (string)null);
                 });
 
+            modelBuilder.Entity("OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Outbox.MensagemOutbox", b =>
+                {
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Canal")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("CorrelationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CriadaEmUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MessageType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset?>("PublicadaEmUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Tentativas")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TraceParent")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("UltimoErro")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("MessageId");
+
+                    b.HasIndex("CorrelationId");
+
+                    b.HasIndex("CriadaEmUtc")
+                        .HasFilter("\"PublicadaEmUtc\" IS NULL");
+
+                    b.ToTable("OutboxMensagens", (string)null);
+                });
+
             modelBuilder.Entity("OficinaMecanica.OS.Domain.Entities.HistoricoStatusOS", b =>
                 {
                     b.HasOne("OficinaMecanica.OS.Domain.Entities.OrdemServico", null)
@@ -372,6 +531,59 @@ namespace OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Migrations
                     b.Navigation("Cliente");
                 });
 
+            modelBuilder.Entity("OficinaMecanica.OS.Domain.Saga.SagaOrdemServico", b =>
+                {
+                    b.OwnsMany("OficinaMecanica.OS.Domain.Saga.ItemDiagnostico", "Itens", b1 =>
+                        {
+                            b1.Property<int>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer");
+
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("Id"));
+
+                            b1.Property<string>("Descricao")
+                                .IsRequired()
+                                .HasMaxLength(200)
+                                .HasColumnType("character varying(200)");
+
+                            b1.Property<Guid>("ItemId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<decimal>("PrecoUnitario")
+                                .HasPrecision(12, 2)
+                                .HasColumnType("numeric(12,2)");
+
+                            b1.Property<int>("Quantidade")
+                                .HasColumnType("integer");
+
+                            b1.Property<Guid>("SagaId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<int>("Tipo")
+                                .HasColumnType("integer");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("SagaId");
+
+                            b1.ToTable("SagaItensDiagnostico", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("SagaId");
+                        });
+
+                    b.Navigation("Itens");
+                });
+
+            modelBuilder.Entity("OficinaMecanica.OS.Domain.Saga.TransicaoSaga", b =>
+                {
+                    b.HasOne("OficinaMecanica.OS.Domain.Saga.SagaOrdemServico", null)
+                        .WithMany("Transicoes")
+                        .HasForeignKey("SagaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("OficinaMecanica.OS.Domain.Entities.Cliente", b =>
                 {
                     b.Navigation("Veiculos");
@@ -380,6 +592,11 @@ namespace OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Migrations
             modelBuilder.Entity("OficinaMecanica.OS.Domain.Entities.OrdemServico", b =>
                 {
                     b.Navigation("Historico");
+                });
+
+            modelBuilder.Entity("OficinaMecanica.OS.Domain.Saga.SagaOrdemServico", b =>
+                {
+                    b.Navigation("Transicoes");
                 });
 #pragma warning restore 612, 618
         }

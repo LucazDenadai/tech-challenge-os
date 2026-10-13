@@ -1,7 +1,9 @@
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.EntityFrameworkCore;
 using OficinaMecanica.OS.Domain.Entities;
+using OficinaMecanica.OS.Domain.Saga;
 using OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Inbox;
+using OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Outbox;
 
 namespace OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence;
 
@@ -17,6 +19,8 @@ public class AppDbContext : DbContext
     [ExcludeFromCodeCoverage] public DbSet<OrdemServico> OrdensServico => Set<OrdemServico>();
     [ExcludeFromCodeCoverage] public DbSet<HistoricoStatusOS> HistoricoStatusOS => Set<HistoricoStatusOS>();
     [ExcludeFromCodeCoverage] public DbSet<MensagemInbox> InboxMensagens => Set<MensagemInbox>();
+    public DbSet<SagaOrdemServico> Sagas => Set<SagaOrdemServico>();
+    public DbSet<MensagemOutbox> Outbox => Set<MensagemOutbox>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

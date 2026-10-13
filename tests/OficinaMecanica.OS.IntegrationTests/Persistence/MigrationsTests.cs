@@ -26,6 +26,7 @@ public class MigrationsTests(PostgresFixture fixture)
             new[]
             {
                 "public.Clientes", "public.Filiais", "public.HistoricoStatusOS", "public.InboxMensagens", "public.OrdensServico",
+                "public.OutboxMensagens", "public.SagaItensDiagnostico", "public.SagaTransicoes", "public.SagasOrdemServico",
                 "public.Usuarios", "public.Veiculos", "public.__EFMigrationsHistory"
             }.Order(),
             tabelas.Order());

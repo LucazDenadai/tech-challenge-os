@@ -28,6 +28,9 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IUsuarioRepository, UsuarioRepository>();
         services.AddScoped<IFilialRepository, FilialRepository>();
         services.AddScoped<IInboxRepository, InboxRepository>();
+        services.AddScoped<ISagaRepository, SagaRepository>();
+        services.AddScoped<IOutbox, OutboxRepository>();
+        services.AddScoped<ITransacao, Transacao>();
 
         services.AddScoped<ITokenService, JwtTokenService>();
 
