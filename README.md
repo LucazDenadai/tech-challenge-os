@@ -12,6 +12,7 @@ src/OficinaMecanica.OS.Application     casos de uso, portas e DTOs dos contratos
 src/OficinaMecanica.OS.Infrastructure  EF Core/PostgreSQL, inbox, outbox, consumidor e despachante RabbitMQ, JWT, e-mail
 src/OficinaMecanica.OS.API             controllers, autenticação, Swagger, health checks
 tests/                                 testes unitários, de contrato e de integração
+e2e/                                   BDD ponta a ponta com os três serviços (Reqnroll)
 contratos/asyncapi-saga-os.yaml        cópia da spec AsyncAPI usada nos testes de contrato
 docs/openapi/os-v1.json                OpenAPI gerado pela API
 ```
@@ -131,3 +132,23 @@ Os testes de contrato leem `contratos/asyncapi-saga-os.yaml`:
 - Cada exemplo e cada mutação inválida devem receber o mesmo veredito da spec e do validador do OS.
 
 Ao mudar a spec em `tech-challenge-docs`, copie o arquivo para cá no mesmo ciclo.
+
+## BDD ponta a ponta
+
+`e2e/` sobe OS, Billing (modo `Simulado`) e Operações com um RabbitMQ só, um PostgreSQL por serviço, DynamoDB Local e Jaeger, e roda os cenários de `e2e/OficinaMecanica.E2E/Features/SagaOrdemServico.feature` (Reqnroll, Gherkin em português). Os steps usam só as APIs públicas, com o papel de quem faria cada ação (CARD-40c).
+
+```sh
+# os três repositórios lado a lado: tech-challenge-os, tech-challenge-billing, tech-challenge-operacoes
+./e2e/executar.sh                      # sobe, testa e derruba; relatório em e2e/resultados/bdd.trx
+MANTER_AMBIENTE=1 ./e2e/executar.sh    # deixa os containers no ar (Jaeger em http://localhost:16690)
+```
+
+| Cenário | O que prova |
+|---|---|
+| Concluir fluxo de OS com pagamento aprovado (obrigatório) | Abertura → diagnóstico → orçamento aprovado → reserva → Pix aprovado → execução → `Finalizada`, com histórico, pagamento aprovado e baixa de estoque |
+| Rejeitar orçamento | `Cancelled` sem cobrança e sem execução |
+| Falta de estoque na filial | `Cancelled` sem cobrança e sem mexer no estoque |
+| Pagamento recusado | Reserva liberada e `Cancelled` |
+| Falha operacional depois do pagamento | Estorno e liberação, `Compensated` |
+
+O workflow `.github/workflows/e2e.yml` faz checkout dos três repositórios e roda o mesmo script em cada push e pull request.
