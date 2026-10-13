@@ -115,14 +115,15 @@ public class SagaOrdemServicoTests
     }
 
     [Fact]
-    public void OrcamentoSemPecas_VaiParaAcaoManual()
+    public void OrcamentoSemPecas_PulaAReservaEVaiAoPagamento()
     {
+        // Serviço sem peça (ADR-020).
         var saga = Em(EstadoSaga.AwaitingApproval, comPeca: false);
 
         Assert.True(saga.AprovarOrcamento(C("QuoteApproved.v1"), _quote, 1));
 
-        Assert.Equal(EstadoSaga.ManualActionRequired, saga.Estado);
-        Assert.Contains("sem peças", saga.Motivo);
+        Assert.Equal(EstadoSaga.CreatingPayment, saga.Estado);
+        Assert.Equal([ComandoEtapa.Pagamento], saga.ComandosDaEtapa());
     }
 
     [Fact]
@@ -190,13 +191,6 @@ public class SagaOrdemServicoTests
         Assert.Equal(EstadoSaga.Cancelled, saga.Estado);
         Assert.True(saga.Terminada);
         Assert.NotNull(saga.Motivo);
-    }
-
-    [Fact]
-    public void CancelarManualmente_EncerraSagaAtivaMasNaoTerminada()
-    {
-        Assert.True(Em(EstadoSaga.AwaitingPayment).CancelarManualmente("Cliente desistiu"));
-        Assert.False(Em(EstadoSaga.Completed).CancelarManualmente("Tarde demais"));
     }
 
     [Theory]

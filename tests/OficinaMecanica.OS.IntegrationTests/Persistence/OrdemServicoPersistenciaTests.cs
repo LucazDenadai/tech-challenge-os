@@ -34,7 +34,7 @@ public class OrdemServicoPersistenciaTests(PostgresFixture fixture)
             new SagaRepository(db), new OutboxRepository(db), NullLogger<AbrirOrdemServicoUseCase>.Instance);
 
     private static AtualizarStatusOSUseCase CriarAtualizarUseCase(AppDbContext db)
-        => new(new OrdemServicoRepository(db), new SagaRepository(db), new EmailNoOp(), new ClienteRepository(db), NullLogger<AtualizarStatusOSUseCase>.Instance);
+        => new(new OrdemServicoRepository(db), new EmailNoOp(), new ClienteRepository(db), NullLogger<AtualizarStatusOSUseCase>.Instance);
 
     [Fact]
     public async Task Abrir_GravaSagaEDiagnosisRequestedNaOutboxJuntoComAOS()
