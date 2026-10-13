@@ -215,7 +215,21 @@ public class ConsumidorSagaHostedService(
     private async Task FecharAsync()
     {
         estado.Marcar(false);
-        if (_canal is not null) { await _canal.DisposeAsync(); _canal = null; }
-        if (_conexao is not null) { await _conexao.DisposeAsync(); _conexao = null; }
+        try
+        {
+            if (_canal is not null) await _canal.DisposeAsync();
+            if (_conexao is not null) await _conexao.DisposeAsync();
+        }
+        catch (ObjectDisposedException ex)
+        {
+            // Corrida intermitente do RabbitMQ.Client 7 ao fechar o canal durante o desligamento.
+            // Não perde mensagem (sem ack, ela volta à fila) e não deve derrubar o host.
+            logger.LogDebug(ex, "Conexão com o RabbitMQ já estava descartada ao fechar o consumidor.");
+        }
+        finally
+        {
+            _canal = null;
+            _conexao = null;
+        }
     }
 }
