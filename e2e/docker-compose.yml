@@ -1,0 +1,87 @@
+# Ambiente integrado do BDD ponta a ponta (CARD-40c): OS, Billing e Operações com um RabbitMQ só.
+# Os serviços são construídos a partir dos três repositórios lado a lado:
+#
+#   <pasta>/tech-challenge-os, <pasta>/tech-challenge-billing, <pasta>/tech-challenge-operacoes
+#
+# Use e2e/executar.sh, que sobe o ambiente, roda os cenários e derruba tudo. Sem volumes: cada execução começa limpa.
+# Segredos daqui valem só para este ambiente descartável.
+x-servico: &servico
+  restart: on-failure
+  environment: &ambiente-comum
+    ASPNETCORE_ENVIRONMENT: Development
+    Jwt__Key: chave-do-ambiente-e2e-com-mais-de-32-caracteres
+    Jwt__Issuer: oficina-atendimento
+    Jwt__Audience: oficina-atendimento-api
+    RabbitMq__Enabled: "true"
+    RabbitMq__Host: rabbitmq
+    RabbitMq__Username: saga
+    RabbitMq__Password: saga-e2e
+    RabbitMq__IntervaloOutboxMs: "200"
+    Jaeger__Endpoint: http://jaeger:4318
+
+services:
+  os:
+    <<: *servico
+    build: ..
+    depends_on: [postgres-os, rabbitmq]
+    environment:
+      <<: *ambiente-comum
+      ConnectionStrings__DefaultConnection: "Host=postgres-os;Database=oficina_os;Username=postgres;Password=postgres"
+      Seed__SenhaUsuarios: "Senha@E2e123"
+      Interno__ApiKey: chave-interna-e2e
+    ports:
+      - "8090:8080"
+
+  billing:
+    <<: *servico
+    build: ../../tech-challenge-billing
+    depends_on: [postgres-billing, rabbitmq]
+    environment:
+      <<: *ambiente-comum
+      ConnectionStrings__DefaultConnection: "Host=postgres-billing;Database=oficina_billing;Username=postgres;Password=postgres"
+      # Pagamento pelo provedor simulado (ADR-019): o BDD não depende do sandbox do Mercado Pago.
+      MercadoPago__Modo: Simulado
+    ports:
+      - "8091:8080"
+
+  operacoes:
+    <<: *servico
+    build: ../../tech-challenge-operacoes
+    depends_on: [postgres-operacoes, rabbitmq, dynamodb]
+    environment:
+      <<: *ambiente-comum
+      ConnectionStrings__DefaultConnection: "Host=postgres-operacoes;Database=oficina_operacoes;Username=postgres;Password=postgres"
+      DynamoDb__ServiceUrl: http://dynamodb:8000
+      DynamoDb__AccessKey: local
+      DynamoDb__SecretKey: local
+      DynamoDb__CriarTabela: "true"
+    ports:
+      - "8092:8080"
+
+  # Um PostgreSQL por serviço, como na nuvem (ADR-016).
+  postgres-os:
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: oficina_os, POSTGRES_PASSWORD: postgres }
+  postgres-billing:
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: oficina_billing, POSTGRES_PASSWORD: postgres }
+  postgres-operacoes:
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: oficina_operacoes, POSTGRES_PASSWORD: postgres }
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: saga
+      RABBITMQ_DEFAULT_PASS: saga-e2e
+    ports:
+      - "15680:15672"
+
+  dynamodb:
+    image: amazon/dynamodb-local:2.6.1
+    command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    ports:
+      - "16690:16686"
