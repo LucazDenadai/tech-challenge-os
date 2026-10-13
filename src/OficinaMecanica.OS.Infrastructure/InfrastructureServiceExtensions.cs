@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using OficinaMecanica.OS.Application.Ports.Out;
 using OficinaMecanica.OS.Infrastructure.Adapters.In.Messaging;
 using OficinaMecanica.OS.Infrastructure.Adapters.Out.Email;
+using OficinaMecanica.OS.Infrastructure.Adapters.Out.Messaging;
 using OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence;
 using OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Repositories;
 using OficinaMecanica.OS.Infrastructure.Adapters.Out.Security;
@@ -43,7 +44,7 @@ public static class InfrastructureServiceExtensions
         return services;
     }
 
-    // Consumidor dos canais da Saga (ADR-018). Desabilitado, nenhuma conexão é aberta.
+    // Consumidor dos canais da Saga e despachante da outbox (ADR-018). Desabilitado, nenhuma conexão é aberta.
     public static IServiceCollection AddMensageria(this IServiceCollection services, IConfiguration configuration)
     {
         var secao = configuration.GetSection(RabbitMqOptions.Secao);
@@ -58,6 +59,8 @@ public static class InfrastructureServiceExtensions
         services.Configure<RabbitMqOptions>(secao);
         services.AddSingleton<EstadoConsumidorSaga>();
         services.AddHostedService<ConsumidorSagaHostedService>();
+        services.AddSingleton<PublicadorRabbitMq>();
+        services.AddHostedService<DespachanteOutboxHostedService>();
         return services;
     }
 }
