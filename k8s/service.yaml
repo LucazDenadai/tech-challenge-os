@@ -1,0 +1,10 @@
+# NodePort fixo: o cluster Kind expõe 30090 na porta 8090 da máquina (tech-challenge-infra-k8s/kind/cluster.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: os
+spec:
+  type: NodePort
+  selector: { app: os }
+  ports:
+    - { name: http, port: 8080, targetPort: http, nodePort: 30090 }
