@@ -209,8 +209,11 @@ public class SagaOrdemServico : EntityBase
     }
 
     // Aceito também em CancellingExecution: o reparo pode terminar enquanto o pedido de cancelamento viaja.
+    // Aceito também em StartingExecution: ExecutionStarted e ExecutionCompleted vêm por filas diferentes, e a conclusão
+    // pode ser processada primeiro. Se a execução terminou, ela começou.
     public bool ConcluirExecucao(Causa causa, Guid executionId)
-        => Estado is EstadoSaga.InExecution or EstadoSaga.CancellingExecution && executionId == ExecutionId
+        => Estado is EstadoSaga.StartingExecution or EstadoSaga.InExecution or EstadoSaga.CancellingExecution
+           && executionId == ExecutionId
            && Transitar(EstadoSaga.Completed, causa);
 
     // ── Pagamento recusado ou incerto (CARD-40b) ───────────────────────────────
@@ -241,8 +244,10 @@ public class SagaOrdemServico : EntityBase
         => Estado == EstadoSaga.StartingExecution && executionId == ExecutionId
            && Transitar(EstadoSaga.Compensating, causa, motivo);
 
+    // Mesma regra de ordem da conclusão: a falha pode chegar antes do ExecutionStarted.
     public bool FalharExecucao(Causa causa, Guid executionId, string motivo)
-        => Estado is EstadoSaga.InExecution or EstadoSaga.CancellingExecution && executionId == ExecutionId
+        => Estado is EstadoSaga.StartingExecution or EstadoSaga.InExecution or EstadoSaga.CancellingExecution
+           && executionId == ExecutionId
            && Transitar(EstadoSaga.Compensating, causa, motivo);
 
     public bool RegistrarCancelamentoExecucao(Causa causa, Guid executionId)
