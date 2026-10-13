@@ -1,3 +1,4 @@
+using OficinaMecanica.OS.Application.UseCases.Mensageria;
 using OficinaMecanica.OS.Infrastructure.Adapters.In.Messaging;
 using OpenTelemetry.Exporter;
 using OpenTelemetry.Metrics;
@@ -28,6 +29,7 @@ public static class OpenTelemetryExtensions
                 .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(serviceName))
                 .AddAspNetCoreInstrumentation()
                 .AddRuntimeInstrumentation()
+                .AddMeter(MetricasSaga.NomeMedidor)
                 .AddPrometheusExporter());
 
         return builder;

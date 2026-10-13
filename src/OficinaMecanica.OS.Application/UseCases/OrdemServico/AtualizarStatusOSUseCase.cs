@@ -5,8 +5,12 @@ using OficinaMecanica.OS.Domain.Enums;
 
 namespace OficinaMecanica.OS.Application.UseCases.OrdemServico;
 
+// Transições manuais da API (CARD-37b): entrega e cancelamento. O cancelamento também encerra a Saga, na mesma
+// gravação, para que eventos atrasados dos participantes não mexam mais na OS. Liberar a reserva e estornar o
+// pagamento pela Saga fica no CARD-40b.
 public class AtualizarStatusOSUseCase(
     IOrdemServicoRepository repository,
+    ISagaRepository sagaRepository,
     IEmailPort emailPort,
     IClienteRepository clienteRepository,
     ILogger<AtualizarStatusOSUseCase> logger)
@@ -18,6 +22,12 @@ public class AtualizarStatusOSUseCase(
 
         var statusAnterior = os.Status;
         os.AlterarStatus(novoStatus);
+
+        if (novoStatus == StatusOrdemServico.Cancelada
+            && await sagaRepository.ObterPorOsAsync(osId, ct) is { } saga
+            && saga.CancelarManualmente("OS cancelada pelo atendimento."))
+            logger.LogWarning("Saga encerrada por cancelamento manual, sem compensação automática. OrdemServicoId={OrdemServicoId} CorrelationId={CorrelationId}",
+                osId, saga.Id);
 
         await repository.AtualizarAsync(os, ct);
         await repository.SalvarAsync(ct);

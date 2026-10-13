@@ -26,7 +26,7 @@ public class Cliente : EntityBase
         ValidarDocumento(documentoSanitizado);
         Nome = nome;
         Documento = documentoSanitizado;
-        Email = email;
+        Email = ValidarEmail(email);
         Telefone = telefone;
         Endereco = endereco;
     }
@@ -37,7 +37,7 @@ public class Cliente : EntityBase
     public void Atualizar(string nome, string email, string telefone, string endereco)
     {
         Nome = nome;
-        Email = email;
+        Email = ValidarEmail(email);
         Telefone = telefone;
         Endereco = endereco;
         MarcarAtualizado();
@@ -46,7 +46,7 @@ public class Cliente : EntityBase
     public void Ativar(string nome, string email, string telefone, string endereco)
     {
         Nome = nome;
-        Email = email;
+        Email = ValidarEmail(email);
         Telefone = telefone;
         Endereco = endereco;
         Ativo = true;
@@ -57,6 +57,18 @@ public class Cliente : EntityBase
     {
         Ativo = false;
         MarcarAtualizado();
+    }
+
+    // O e-mail é o payerEmail do Pix (ADR-019): sem ele a Saga não consegue pedir o pagamento (CARD-40a).
+    public static bool EmailValido(string? email)
+        => !string.IsNullOrWhiteSpace(email)
+           && Regex.IsMatch(email.Trim(), @"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.None, TimeSpan.FromMilliseconds(100));
+
+    private static string ValidarEmail(string email)
+    {
+        if (!EmailValido(email))
+            throw new ArgumentException("E-mail inválido. O e-mail do cliente é obrigatório.", nameof(email));
+        return email.Trim();
     }
 
     private static void ValidarDocumento(string documento)

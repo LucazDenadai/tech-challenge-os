@@ -12,7 +12,7 @@ using RabbitMQ.Client.Events;
 namespace OficinaMecanica.OS.Infrastructure.Adapters.In.Messaging;
 
 // Consome os canais da Saga cujo consumidor é o OS (ADR-018): fila os.<canal> ligada à exchange fanout do canal
-// e DLQ os.<canal>.dlq. Só registra na inbox; o efeito de negócio fica no CARD-40.
+// e DLQ os.<canal>.dlq. Cada mensagem passa pelo orquestrador da Saga (CARD-40a).
 public class ConsumidorSagaHostedService(
     IServiceScopeFactory scopeFactory,
     IOptions<RabbitMqOptions> options,
@@ -138,7 +138,7 @@ public class ConsumidorSagaHostedService(
             {
                 // Escopo novo por tentativa: um DbContext que falhou não é reaproveitado.
                 using var escopo = scopeFactory.CreateScope();
-                var useCase = escopo.ServiceProvider.GetRequiredService<RegistrarMensagemRecebidaUseCase>();
+                var useCase = escopo.ServiceProvider.GetRequiredService<ProcessarMensagemSagaUseCase>();
                 return await useCase.ExecutarAsync(canal.Endereco, corpo, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
@@ -150,7 +150,7 @@ public class ConsumidorSagaHostedService(
                         $"Falha transitória após {tentativa + 1} tentativas: {ex.GetType().Name}.", null, null, null);
                 }
 
-                logger.LogWarning(ex, "Falha ao registrar mensagem; nova tentativa em {Espera}s. Canal={Canal}",
+                logger.LogWarning(ex, "Falha ao processar mensagem; nova tentativa em {Espera}s. Canal={Canal}",
                     _esperas[tentativa].TotalSeconds, canal.Endereco);
                 await Task.Delay(_esperas[tentativa], ct);
             }
@@ -215,7 +215,21 @@ public class ConsumidorSagaHostedService(
     private async Task FecharAsync()
     {
         estado.Marcar(false);
-        if (_canal is not null) { await _canal.DisposeAsync(); _canal = null; }
-        if (_conexao is not null) { await _conexao.DisposeAsync(); _conexao = null; }
+        try
+        {
+            if (_canal is not null) await _canal.DisposeAsync();
+            if (_conexao is not null) await _conexao.DisposeAsync();
+        }
+        catch (ObjectDisposedException ex)
+        {
+            // Corrida intermitente do RabbitMQ.Client 7 ao fechar o canal durante o desligamento.
+            // Não perde mensagem (sem ack, ela volta à fila) e não deve derrubar o host.
+            logger.LogDebug(ex, "Conexão com o RabbitMQ já estava descartada ao fechar o consumidor.");
+        }
+        finally
+        {
+            _canal = null;
+            _conexao = null;
+        }
     }
 }

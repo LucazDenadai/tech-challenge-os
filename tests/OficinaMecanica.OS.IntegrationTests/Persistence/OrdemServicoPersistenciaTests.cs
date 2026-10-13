@@ -4,6 +4,7 @@ using OficinaMecanica.OS.Application.Ports.Out;
 using OficinaMecanica.OS.Application.UseCases.OrdemServico;
 using OficinaMecanica.OS.Domain.Entities;
 using OficinaMecanica.OS.Domain.Enums;
+using OficinaMecanica.OS.Domain.Saga;
 using OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence;
 using OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Repositories;
 using OficinaMecanica.OS.IntegrationTests.Fixtures;
@@ -29,10 +30,32 @@ public class OrdemServicoPersistenciaTests(PostgresFixture fixture)
     }
 
     private static AbrirOrdemServicoUseCase CriarAbrirUseCase(AppDbContext db)
-        => new(new OrdemServicoRepository(db), new VeiculoRepository(db), new FilialRepository(db), NullLogger<AbrirOrdemServicoUseCase>.Instance);
+        => new(new OrdemServicoRepository(db), new VeiculoRepository(db), new FilialRepository(db), new ClienteRepository(db),
+            new SagaRepository(db), new OutboxRepository(db), NullLogger<AbrirOrdemServicoUseCase>.Instance);
 
     private static AtualizarStatusOSUseCase CriarAtualizarUseCase(AppDbContext db)
-        => new(new OrdemServicoRepository(db), new EmailNoOp(), new ClienteRepository(db), NullLogger<AtualizarStatusOSUseCase>.Instance);
+        => new(new OrdemServicoRepository(db), new SagaRepository(db), new EmailNoOp(), new ClienteRepository(db), NullLogger<AtualizarStatusOSUseCase>.Instance);
+
+    [Fact]
+    public async Task Abrir_GravaSagaEDiagnosisRequestedNaOutboxJuntoComAOS()
+    {
+        var (conn, clienteId, veiculoId, filialId) = await PrepararCadastrosAsync();
+
+        Guid osId;
+        await using (var db = PostgresFixture.CriarContexto(conn))
+            osId = (await CriarAbrirUseCase(db).ExecutarAsync(new AbrirOrdemServicoRequest(clienteId, veiculoId, filialId, "Obs"))).Id;
+
+        await using var leitura = PostgresFixture.CriarContexto(conn);
+        var saga = await new SagaRepository(leitura).ObterPorOsAsync(osId);
+        Assert.NotNull(saga);
+        Assert.Equal(EstadoSaga.Diagnosing, saga.Estado);
+        var comando = await leitura.Outbox.SingleAsync();
+        Assert.Equal("DiagnosisRequested.v1", comando.MessageType);
+        Assert.Equal("saga-os.diagnosis-requested.v1", comando.Canal);
+        Assert.Equal(saga.Id, comando.CorrelationId);
+        Assert.Null(comando.PublicadaEmUtc);
+        Assert.Contains($"os:{osId}:diagnosis", comando.Payload);
+    }
 
     [Fact]
     public async Task AbrirETransicionar_PersisteOSComFilialEHistorico()
