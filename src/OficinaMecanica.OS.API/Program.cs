@@ -55,7 +55,7 @@ builder.Services.AddScoped<ObterOrdemServicoUseCase>();
 builder.Services.AddScoped<ConsultarStatusOSUseCase>();
 builder.Services.AddScoped<AtualizarStatusOSUseCase>();
 builder.Services.AddScoped<AcompanharOSUseCase>();
-builder.Services.AddScoped<RegistrarMensagemRecebidaUseCase>();
+builder.Services.AddScoped<ProcessarMensagemSagaUseCase>();
 
 // ── Autenticação: JWT (funcionários e clientes) e chave de API interna (Lambda) ─
 var jwtKey = (builder.Configuration["Jwt:Key"] is { Length: > 0 } k ? k : null)

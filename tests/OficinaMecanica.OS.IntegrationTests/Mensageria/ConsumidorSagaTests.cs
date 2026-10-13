@@ -10,6 +10,7 @@ using Testcontainers.RabbitMq;
 namespace OficinaMecanica.OS.IntegrationTests.Mensageria;
 
 // Consumo real pelo RabbitMQ: inbox, deduplicação por messageId e DLQ com motivo (CARD-37b).
+// Desde o CARD-40a a mensagem precisa de uma Saga: cada teste abre uma OS pela API.
 [Collection(PostgresCollection.Nome)]
 public class ConsumidorSagaTests(PostgresFixture postgres) : IAsyncLifetime
 {
@@ -23,6 +24,7 @@ public class ConsumidorSagaTests(PostgresFixture postgres) : IAsyncLifetime
         .Build();
 
     private OsApiFactory _factory = null!;
+    private SagaAberta _saga = null!;
     private IConnection _conexao = null!;
     private IChannel _canal = null!;
 
@@ -43,6 +45,8 @@ public class ConsumidorSagaTests(PostgresFixture postgres) : IAsyncLifetime
         // Readiness só fica 200 quando o consumidor declarou as filas e está consumindo.
         var http = _factory.CreateClient();
         await Aguardar(async () => (await http.GetAsync("/os/ready")).StatusCode == HttpStatusCode.OK);
+
+        _saga = await CenarioSaga.AbrirOsAsync(_factory);
 
         _conexao = await new ConnectionFactory { Uri = uri, UserName = "os-teste", Password = "os-teste-senha" }.CreateConnectionAsync();
         _canal = await _conexao.CreateChannelAsync();
@@ -105,17 +109,33 @@ public class ConsumidorSagaTests(PostgresFixture postgres) : IAsyncLifetime
         Assert.Equal(0, await ContarInboxAsync());
     }
 
-    private static JsonObject PagamentoAprovado() => new()
+    [Fact]
+    public async Task MensagemDeOsSemSaga_VaiParaDlqComMotivo()
+    {
+        var mensagem = PagamentoAprovado();
+        mensagem["osId"] = Guid.NewGuid().ToString();
+
+        await PublicarAsync(mensagem);
+
+        await Aguardar(async () => await ContarFilaAsync(Dlq) == 1);
+        var naDlq = await _canal.BasicGetAsync(Dlq, autoAck: true);
+        Assert.Contains("Saga da OS", Texto(naDlq!.BasicProperties.Headers!["x-motivo"]));
+        // A transação foi desfeita: nem a inbox ficou, então a mensagem pode ser reprocessada da DLQ.
+        Assert.Equal(0, await ContarInboxAsync());
+    }
+
+    // PaymentApproved com a Saga ainda em Diagnosing: válida, fica na inbox, mas não muda a Saga (fora do fluxo).
+    private JsonObject PagamentoAprovado() => new()
     {
         ["messageId"] = Guid.NewGuid().ToString(),
         ["messageType"] = "PaymentApproved.v1",
         ["schemaVersion"] = 1,
         ["producer"] = "billing",
         ["occurredAtUtc"] = "2026-10-07T12:00:00Z",
-        ["correlationId"] = Guid.NewGuid().ToString(),
+        ["correlationId"] = _saga.CorrelationId.ToString(),
         ["causationId"] = Guid.NewGuid().ToString(),
-        ["osId"] = Guid.NewGuid().ToString(),
-        ["filialId"] = Guid.NewGuid().ToString(),
+        ["osId"] = _saga.OsId.ToString(),
+        ["filialId"] = _saga.FilialId.ToString(),
         ["paymentId"] = Guid.NewGuid().ToString(),
         ["amount"] = 245.90m,
         ["currency"] = "BRL",
