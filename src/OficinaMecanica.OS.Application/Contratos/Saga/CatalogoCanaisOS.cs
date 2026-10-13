@@ -2,9 +2,32 @@ namespace OficinaMecanica.OS.Application.Contratos.Saga;
 
 public sealed record CanalConsumido(string Endereco, string MessageType, int SchemaVersion, string Produtor, Type TipoMensagem);
 
-// Canais cujo consumidor é o OS no AsyncAPI (ADR-018). Um teste de contrato compara esta lista com a spec.
+public sealed record CanalPublicado(string Endereco, string MessageType, Type TipoMensagem);
+
+// Canais cujo consumidor (Todos) ou produtor (Publicados) é o OS no AsyncAPI (ADR-018).
+// Testes de contrato comparam as duas listas com a spec.
 public static class CatalogoCanaisOS
 {
+    public const string Produtor = "os";
+
+    public static readonly IReadOnlyList<CanalPublicado> Publicados =
+    [
+        Publicado<DiagnosisRequested>("saga-os.diagnosis-requested.v1"),
+        Publicado<QuoteRequested>("saga-os.quote-requested.v1"),
+        Publicado<InventoryReservationRequested>("saga-os.inventory-reservation-requested.v1"),
+        Publicado<PaymentCreationRequested>("saga-os.payment-creation-requested.v1"),
+        Publicado<ExecutionStartRequested>("saga-os.execution-start-requested.v1"),
+        Publicado<InventoryReleaseRequested>("saga-os.inventory-release-requested.v1"),
+        Publicado<PaymentRefundRequested>("saga-os.payment-refund-requested.v1")
+    ];
+
+    public static CanalPublicado Publicado(Type tipo)
+        => Publicados.FirstOrDefault(c => c.TipoMensagem == tipo)
+           ?? throw new InvalidOperationException($"O OS não publica {tipo.Name}.");
+
+    private static CanalPublicado Publicado<T>(string endereco) where T : MensagemSaga
+        => new(endereco, $"{typeof(T).Name}.v1", typeof(T));
+
     public static readonly IReadOnlyList<CanalConsumido> Todos =
     [
         Canal<DiagnosisCompleted>("saga-os.diagnosis-completed.v1", "operacoes"),

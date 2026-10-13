@@ -16,9 +16,14 @@ public static class SpecAsyncApi
     public static JsonObject Documento => _documento.Value;
 
     // Canais cujo consumidor declarado na descrição é o OS: endereço → nome da mensagem (ex.: "PaymentApproved").
-    public static IReadOnlyDictionary<string, string> CanaisConsumidosPeloOS()
+    public static IReadOnlyDictionary<string, string> CanaisConsumidosPeloOS() => Canais("Consumidor: OS");
+
+    // Canais cujo produtor é o OS: os comandos da Saga.
+    public static IReadOnlyDictionary<string, string> CanaisProduzidosPeloOS() => Canais("Produtor: OS");
+
+    private static IReadOnlyDictionary<string, string> Canais(string trecho)
         => Documento["channels"]!.AsObject()
-            .Where(c => c.Value!["description"]!.GetValue<string>().Contains("Consumidor: OS"))
+            .Where(c => c.Value!["description"]!.GetValue<string>().Contains(trecho))
             .ToDictionary(
                 c => c.Value!["address"]!.GetValue<string>(),
                 c => c.Value!["messages"]!.AsObject().Single().Value!["$ref"]!.GetValue<string>()[Prefixo.Length..]);
