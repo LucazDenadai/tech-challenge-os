@@ -18,7 +18,8 @@ public static class CatalogoCanaisOS
         Publicado<PaymentCreationRequested>("saga-os.payment-creation-requested.v1"),
         Publicado<ExecutionStartRequested>("saga-os.execution-start-requested.v1"),
         Publicado<InventoryReleaseRequested>("saga-os.inventory-release-requested.v1"),
-        Publicado<PaymentRefundRequested>("saga-os.payment-refund-requested.v1")
+        Publicado<PaymentRefundRequested>("saga-os.payment-refund-requested.v1"),
+        Publicado<ExecutionCancelRequested>("saga-os.execution-cancel-requested.v1")
     ];
 
     public static CanalPublicado Publicado(Type tipo)
@@ -47,6 +48,8 @@ public static class CatalogoCanaisOS
         Canal<ExecutionStartRejected>("saga-os.execution-start-rejected.v1", "operacoes"),
         Canal<ExecutionCompleted>("saga-os.execution-completed.v1", "operacoes"),
         Canal<ExecutionFailed>("saga-os.execution-failed.v1", "operacoes"),
+        Canal<ExecutionCancelled>("saga-os.execution-cancelled.v1", "operacoes"),
+        Canal<ExecutionCancelRejected>("saga-os.execution-cancel-rejected.v1", "operacoes"),
         Canal<InventoryReleased>("saga-os.inventory-released.v1", "operacoes"),
         Canal<PaymentRefunded>("saga-os.payment-refunded.v1", "billing"),
         Canal<PaymentRefundPending>("saga-os.payment-refund-pending.v1", "billing"),

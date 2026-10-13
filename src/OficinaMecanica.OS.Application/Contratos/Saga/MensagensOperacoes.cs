@@ -50,6 +50,17 @@ public sealed record ExecutionStartRejected : Rejection
     public required Guid ExecutionId { get; init; }
 }
 
+// Resposta ao pedido de cancelamento antes do reparo (ADR-020).
+public sealed record ExecutionCancelled : MensagemSaga
+{
+    public required Guid ExecutionId { get; init; }
+}
+
+public sealed record ExecutionCancelRejected : Rejection
+{
+    public required Guid ExecutionId { get; init; }
+}
+
 public sealed record ExecutionCompleted : MensagemSaga
 {
     public required Guid ExecutionId { get; init; }
