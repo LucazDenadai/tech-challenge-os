@@ -135,6 +135,24 @@ public class SagaCompensacaoFluxoTests(PostgresFixture postgres) : SagaBrokerTes
     }
 
     [Fact]
+    public async Task ConclusaoProcessadaAntesDoInicio_TerminaEmCompleted()
+    {
+        // ExecutionStarted e ExecutionCompleted vão por filas diferentes; a ordem de processamento não é garantida.
+        var saga = await AteAguardarPagamentoAsync();
+        await PagamentoAsync(saga, "PaymentApproved", _pagamento, 100m);
+        await ReceberAsync("saga-os.execution-start-requested.v1");
+        await AguardarEstadoAsync(saga, "StartingExecution");
+
+        await ExecucaoAsync(saga, "ExecutionCompleted", _execucao);
+        await AguardarEstadoAsync(saga, "Completed");
+        await ExecucaoAsync(saga, "ExecutionStarted", _execucao);
+
+        await Task.Delay(500);
+        Assert.Equal("Completed", (await AguardarEstadoAsync(saga, "Completed")).GetProperty("estado").GetString());
+        Assert.Equal("Finalizada", await StatusDaOsAsync(saga));
+    }
+
+    [Fact]
     public async Task SoServico_ConcluiSemReservaEInicioSemReservationId()
     {
         var saga = await CenarioSaga.AbrirOsAsync(Factory);

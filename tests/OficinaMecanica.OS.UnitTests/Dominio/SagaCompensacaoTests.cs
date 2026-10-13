@@ -337,6 +337,26 @@ public class SagaCompensacaoTests
     }
 
     [Fact]
+    public void ConclusaoAntesDoInicio_Conclui()
+    {
+        // ExecutionStarted e ExecutionCompleted chegam por filas diferentes; a ordem não é garantida.
+        var saga = Em(EstadoSaga.StartingExecution);
+
+        Assert.True(saga.ConcluirExecucao(C("ExecutionCompleted.v1"), _execucao));
+        Assert.False(saga.RegistrarInicioExecucao(C("ExecutionStarted.v1"), _execucao));
+        Assert.Equal(EstadoSaga.Completed, saga.Estado);
+    }
+
+    [Fact]
+    public void FalhaAntesDoInicio_Compensa()
+    {
+        var saga = Em(EstadoSaga.StartingExecution);
+
+        Assert.True(saga.FalharExecucao(C("ExecutionFailed.v1"), _execucao, "Falha"));
+        Assert.Equal(EstadoSaga.Compensating, saga.Estado);
+    }
+
+    [Fact]
     public void ConclusaoDuranteOPedidoDeCancelamento_Conclui()
     {
         var saga = Em(EstadoSaga.InExecution);

@@ -83,7 +83,7 @@ A abertura grava a OS, a Saga em `Diagnosing` e `DiagnosisRequested` na outbox n
 | `CreatingPayment` | `PaymentPending` | `AwaitingPayment` | — |
 | `CreatingPayment`, `AwaitingPayment` | `PaymentApproved` | `StartingExecution` | `ExecutionStartRequested` |
 | `StartingExecution` | `ExecutionStarted` | `InExecution` | — (sem reserva, o início sai sem `reservationId`) |
-| `InExecution` | `ExecutionCompleted` | `Completed` | — |
+| `StartingExecution`, `InExecution` | `ExecutionCompleted` | `Completed` | — (a conclusão pode ser processada antes do `ExecutionStarted`: filas diferentes) |
 
 - **Status da OS:** derivado do estado da Saga pela tabela do ADR-017, na mesma transação.
 - **`idempotencyKey`:** `os:<osId>:<etapa>` (`diagnosis`, `quote:1`, `reservation`, `payment:<versão>`, `execution`). Reprocessar o mesmo evento gera a mesma chave.
