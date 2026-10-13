@@ -1,10 +1,13 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using OficinaMecanica.OS.Application.Contratos.Saga;
 using OficinaMecanica.OS.Application.Exceptions;
 using OficinaMecanica.OS.Application.Ports.Out;
 using OficinaMecanica.OS.Application.UseCases.OrdemServico;
 using OficinaMecanica.OS.Domain.Entities;
 using OficinaMecanica.OS.Domain.Enums;
+using OficinaMecanica.OS.Domain.Saga;
+using DomainCliente = OficinaMecanica.OS.Domain.Entities.Cliente;
 using DomainOS = OficinaMecanica.OS.Domain.Entities.OrdemServico;
 using DomainVeiculo = OficinaMecanica.OS.Domain.Entities.Veiculo;
 
@@ -15,6 +18,9 @@ public class AbrirOrdemServicoUseCaseTests
     private readonly Mock<IOrdemServicoRepository> _osRepoMock = new();
     private readonly Mock<IVeiculoRepository> _veiculoRepoMock = new();
     private readonly Mock<IFilialRepository> _filialRepoMock = new();
+    private readonly Mock<IClienteRepository> _clienteRepoMock = new();
+    private readonly Mock<ISagaRepository> _sagaRepoMock = new();
+    private readonly Mock<IOutbox> _outboxMock = new();
     private readonly AbrirOrdemServicoUseCase _sut;
 
     private readonly Guid _clienteId = Guid.NewGuid();
@@ -23,7 +29,10 @@ public class AbrirOrdemServicoUseCaseTests
 
     public AbrirOrdemServicoUseCaseTests()
     {
-        _sut = new AbrirOrdemServicoUseCase(_osRepoMock.Object, _veiculoRepoMock.Object, _filialRepoMock.Object, NullLogger<AbrirOrdemServicoUseCase>.Instance);
+        _sut = new AbrirOrdemServicoUseCase(_osRepoMock.Object, _veiculoRepoMock.Object, _filialRepoMock.Object,
+            _clienteRepoMock.Object, _sagaRepoMock.Object, _outboxMock.Object, NullLogger<AbrirOrdemServicoUseCase>.Instance);
+        _clienteRepoMock.Setup(r => r.ObterPorIdAsync(_clienteId, default))
+            .ReturnsAsync(new DomainCliente("Cliente", "11144477735", "cliente@cliente.example", "11900000000", "Rua A"));
         _veiculoRepoMock.Setup(r => r.ObterPorIdAsync(_veiculoId, default))
             .ReturnsAsync(new DomainVeiculo(_clienteId, "ABC1D23", "Ford", "Fiesta", 2020, "Prata"));
         _filialRepoMock.Setup(r => r.ObterPorIdAsync(_filial.Id, default)).ReturnsAsync(_filial);
@@ -41,6 +50,38 @@ public class AbrirOrdemServicoUseCaseTests
             It.Is<DomainOS>(os => os.Status == StatusOrdemServico.EmDiagnostico && os.FilialId == _filial.Id),
             default), Times.Once);
         _osRepoMock.Verify(r => r.SalvarAsync(default), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecutarAsync_DadosValidos_IniciaSagaEPublicaDiagnosisRequestedNaMesmaGravacao()
+    {
+        SagaOrdemServico? saga = null;
+        _sagaRepoMock.Setup(r => r.AdicionarAsync(It.IsAny<SagaOrdemServico>(), default)).Callback<SagaOrdemServico, CancellationToken>((s, _) => saga = s);
+
+        var result = await _sut.ExecutarAsync(new AbrirOrdemServicoRequest(_clienteId, _veiculoId, _filial.Id, "Revisão"));
+
+        Assert.NotNull(saga);
+        Assert.Equal(result.Id, saga.OsId);
+        Assert.Equal(EstadoSaga.Diagnosing, saga.Estado);
+        _outboxMock.Verify(o => o.Adicionar(It.Is<DiagnosisRequested>(d =>
+            d.CorrelationId == saga.Id && d.OsId == result.Id && d.VeiculoId == _veiculoId && d.CausationId == null)), Times.Once);
+        _osRepoMock.Verify(r => r.SalvarAsync(default), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecutarAsync_ClienteSemEmailValido_LancaInvalidOperationExceptionSemPersistir()
+    {
+        // Cadastro antigo, gravado antes da validação de e-mail.
+        var cliente = new DomainCliente("Cliente", "11144477735", "cliente@cliente.example", "11900000000", "Rua A");
+        typeof(DomainCliente).GetProperty(nameof(DomainCliente.Email))!.SetValue(cliente, "");
+        _clienteRepoMock.Setup(r => r.ObterPorIdAsync(_clienteId, default)).ReturnsAsync(cliente);
+
+        var erro = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _sut.ExecutarAsync(new AbrirOrdemServicoRequest(_clienteId, _veiculoId, _filial.Id, "Obs")));
+
+        Assert.Contains("e-mail", erro.Message);
+        _osRepoMock.Verify(r => r.SalvarAsync(default), Times.Never);
+        _outboxMock.Verify(o => o.Adicionar(It.IsAny<MensagemSaga>()), Times.Never);
     }
 
     [Fact]

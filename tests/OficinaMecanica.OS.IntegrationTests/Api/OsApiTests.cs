@@ -68,6 +68,20 @@ public class OsApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CriarCliente_SemEmail_Retorna400()
+    {
+        // O e-mail é o payerEmail do Pix pedido pela Saga (ADR-019, CARD-40a).
+        var http = await _factory.ClienteFuncionarioAsync(Admin);
+
+        var resposta = await http.PostAsJsonAsync("/os/clientes", new
+        {
+            nome = "Novo Cliente", documento = "39053344705", email = "", telefone = "11900000000", endereco = "Rua Demo"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, resposta.StatusCode);
+    }
+
+    [Fact]
     public async Task TokenDeCliente_NaoAcessaCadastros()
     {
         var resposta = await _factory.ClienteFinal(Guid.NewGuid()).GetAsync("/os/clientes");
