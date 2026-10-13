@@ -20,7 +20,8 @@ public class SagaRepository(AppDbContext context) : ISagaRepository
 
     public async Task<IReadOnlyList<Guid>> ListarComPrazoVencidoAsync(DateTime etapaIniciadaAte, int maximo, CancellationToken ct = default)
         => await context.Sagas
-            .Where(s => SagaOrdemServico.EstadosComPrazo.Contains(s.Estado) && s.EtapaIniciadaEm <= etapaIniciadaAte)
+            // Enumerable.Contains explícito: no C# 14, array.Contains vira a sobrecarga de ReadOnlySpan, que o EF não traduz.
+            .Where(s => Enumerable.Contains(SagaOrdemServico.EstadosComPrazo, s.Estado) && s.EtapaIniciadaEm <= etapaIniciadaAte)
             .OrderBy(s => s.EtapaIniciadaEm)
             .Select(s => s.Id)
             .Take(maximo)
