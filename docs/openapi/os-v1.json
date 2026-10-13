@@ -1479,6 +1479,108 @@
         }
       }
     },
+    "/os/ordens-servico/{id}/saga": {
+      "get": {
+        "tags": [
+          "OrdensServico"
+        ],
+        "summary": "Estado da Saga da OS, referências de orçamento, reserva, pagamento e execução, e as transições.",
+        "description": "Lido só do banco do OS. Não traz dados do cliente.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SagaOrdemServicoResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SagaOrdemServicoResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SagaOrdemServicoResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/os/ordens-servico/{id}/entrega": {
       "post": {
         "tags": [
@@ -1588,7 +1690,8 @@
         "tags": [
           "OrdensServico"
         ],
-        "summary": "Cancela a OS a partir de um status não terminal.",
+        "summary": "Cancela a OS a partir de um status não terminal e encerra a Saga.",
+        "description": "Ainda sem compensação: reserva e pagamento não são desfeitos (CARD-40b).",
         "parameters": [
           {
             "name": "id",
@@ -3282,6 +3385,27 @@
         },
         "additionalProperties": false
       },
+      "EstadoSaga": {
+        "enum": [
+          "Diagnosing",
+          "RequestingQuote",
+          "AwaitingApproval",
+          "ReservingInventory",
+          "CreatingPayment",
+          "AwaitingPayment",
+          "ReconcilingPayment",
+          "StartingExecution",
+          "InExecution",
+          "Completed",
+          "Cancelled",
+          "ReleasingReservation",
+          "Compensating",
+          "CompensationPending",
+          "ManualActionRequired",
+          "Compensated"
+        ],
+        "type": "string"
+      },
       "FilialResponse": {
         "type": "object",
         "properties": {
@@ -3459,6 +3583,71 @@
         },
         "additionalProperties": {}
       },
+      "SagaOrdemServicoResponse": {
+        "type": "object",
+        "properties": {
+          "correlationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "osId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoSaga"
+          },
+          "terminada": {
+            "type": "boolean"
+          },
+          "motivo": {
+            "type": "string",
+            "nullable": true
+          },
+          "executionId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "quoteId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "quoteVersion": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "valorOrcamento": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "moedaOrcamento": {
+            "type": "string",
+            "nullable": true
+          },
+          "reservationId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "paymentId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "transicoes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransicaoSagaItem"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "StatusOrdemServico": {
         "enum": [
           "EmDiagnostico",
@@ -3470,6 +3659,35 @@
           "Cancelada"
         ],
         "type": "string"
+      },
+      "TransicaoSagaItem": {
+        "type": "object",
+        "properties": {
+          "estadoAnterior": {
+            "$ref": "#/components/schemas/EstadoSaga"
+          },
+          "estadoNovo": {
+            "$ref": "#/components/schemas/EstadoSaga"
+          },
+          "causa": {
+            "type": "string",
+            "nullable": true
+          },
+          "messageId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "motivo": {
+            "type": "string",
+            "nullable": true
+          },
+          "em": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
       },
       "UsuarioResponse": {
         "type": "object",
