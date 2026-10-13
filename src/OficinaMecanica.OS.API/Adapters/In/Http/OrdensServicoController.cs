@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OficinaMecanica.OS.Application.UseCases.OrdemServico;
+using System.Security.Claims;
+using OficinaMecanica.OS.Application.UseCases.Saga;
 using OficinaMecanica.OS.Domain.Enums;
+using OficinaMecanica.OS.Domain.Saga;
 
 namespace OficinaMecanica.OS.API.Adapters.In.Http;
 
@@ -20,6 +23,8 @@ public class OrdensServicoController : ControllerBase
     private readonly ConsultarStatusOSUseCase _consultarStatusUseCase;
     private readonly AtualizarStatusOSUseCase _atualizarStatusUseCase;
     private readonly ConsultarSagaUseCase _consultarSagaUseCase;
+    private readonly CancelarOrdemServicoUseCase _cancelarUseCase;
+    private readonly ResolverAcaoManualUseCase _resolverUseCase;
 
     public OrdensServicoController(
         AbrirOrdemServicoUseCase abrirUseCase,
@@ -27,7 +32,9 @@ public class OrdensServicoController : ControllerBase
         ObterOrdemServicoUseCase obterUseCase,
         ConsultarStatusOSUseCase consultarStatusUseCase,
         AtualizarStatusOSUseCase atualizarStatusUseCase,
-        ConsultarSagaUseCase consultarSagaUseCase)
+        ConsultarSagaUseCase consultarSagaUseCase,
+        CancelarOrdemServicoUseCase cancelarUseCase,
+        ResolverAcaoManualUseCase resolverUseCase)
     {
         _abrirUseCase = abrirUseCase;
         _listarUseCase = listarUseCase;
@@ -35,6 +42,8 @@ public class OrdensServicoController : ControllerBase
         _consultarStatusUseCase = consultarStatusUseCase;
         _atualizarStatusUseCase = atualizarStatusUseCase;
         _consultarSagaUseCase = consultarSagaUseCase;
+        _cancelarUseCase = cancelarUseCase;
+        _resolverUseCase = resolverUseCase;
     }
 
     /// <summary>Lista as OS em andamento, da mais urgente (EmExecucao) para a menos (EmDiagnostico).</summary>
@@ -96,6 +105,24 @@ public class OrdensServicoController : ControllerBase
     public async Task<IActionResult> ConsultarSaga(Guid id, CancellationToken ct)
         => Ok(await _consultarSagaUseCase.ExecutarAsync(id, ct));
 
+    /// <summary>Resolve uma Saga parada em ação manual: cancelar com compensação ou retomar a etapa (ADR-020).</summary>
+    /// <remarks>O motivo e o usuário ficam no histórico da Saga. Pagamento divergente só aceita Cancelar.</remarks>
+    /// <response code="204">Resolução registrada; compensação ou retomada seguem pela Saga.</response>
+    /// <response code="400">Motivo ausente.</response>
+    /// <response code="422">A Saga não está em ação manual, ou Retomar não vale para a causa.</response>
+    [HttpPost("{id:guid}/saga/resolucao")]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> ResolverAcaoManual(Guid id, [FromBody] ResolverAcaoManualRequest request, CancellationToken ct)
+    {
+        var usuario = User.FindFirst(ClaimTypes.Email)?.Value ?? User.FindFirst("email")?.Value ?? "admin";
+        await _resolverUseCase.ExecutarAsync(id, request.Acao, request.Motivo, usuario, ct);
+        return NoContent();
+    }
+
     /// <summary>Registra a entrega do veículo ao cliente (Finalizada → Entregue). Fora da Saga.</summary>
     /// <response code="422">OS não está Finalizada.</response>
     [HttpPost("{id:guid}/entrega")]
@@ -109,17 +136,21 @@ public class OrdensServicoController : ControllerBase
         return NoContent();
     }
 
-    /// <summary>Cancela a OS a partir de um status não terminal e encerra a Saga.</summary>
-    /// <remarks>Ainda sem compensação: reserva e pagamento não são desfeitos (CARD-40b).</remarks>
-    /// <response code="422">OS Finalizada, Entregue ou já Cancelada.</response>
+    /// <summary>Pede o cancelamento da OS pela Saga (ADR-020).</summary>
+    /// <remarks>Sem efeito a desfazer, encerra na hora (204). Com reserva, pagamento ou execução em andamento, a Saga
+    /// libera, estorna ou pede o cancelamento a Operações (202): o resultado aparece no status e na Saga. Com o reparo
+    /// já começado, Operações recusa e a OS segue em execução.</remarks>
+    /// <response code="202">Cancelamento pedido; a Saga compensa ou espera a resposta de um participante.</response>
+    /// <response code="422">OS encerrada ou Saga em ação manual.</response>
     [HttpPost("{id:guid}/cancelamento")]
     [Authorize(Roles = "Admin,Atendente")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> Cancelar(Guid id, CancellationToken ct)
     {
-        await _atualizarStatusUseCase.ExecutarAsync(id, StatusOrdemServico.Cancelada, ct);
-        return NoContent();
+        var resultado = await _cancelarUseCase.ExecutarAsync(id, ct);
+        return resultado == ResultadoCancelamento.Encerrada ? NoContent() : Accepted();
     }
 }

@@ -34,15 +34,22 @@ public sealed record PaymentCreationRequested : MensagemSaga
 public sealed record ExecutionStartRequested : MensagemSaga
 {
     public required Guid ExecutionId { get; init; }
-    public required Guid ReservationId { get; init; }
+    // Ausente quando o orçamento não tem peças (serviço sem peça, ADR-020).
+    public Guid? ReservationId { get; init; }
 }
 
-// Comandos de compensação, publicados a partir do CARD-40b.
+// Comandos de compensação e cancelamento (CARD-40b, ADR-020).
 
 public sealed record InventoryReleaseRequested : MensagemSaga
 {
     public required string Reason { get; init; }
     public required Guid ReservationId { get; init; }
+}
+
+public sealed record ExecutionCancelRequested : MensagemSaga
+{
+    public required string Reason { get; init; }
+    public required Guid ExecutionId { get; init; }
 }
 
 public sealed record PaymentRefundRequested : MensagemSaga

@@ -47,6 +47,8 @@ public static class MensagensExemplo
         nameof(InventoryReservationRejected) => [("reason", "Saldo insuficiente na filial"), ("unavailablePecaIds", new JsonArray(Id()))],
         nameof(ExecutionStarted) => [("executionId", Id()), ("startedAtUtc", Instante)],
         nameof(ExecutionStartRejected) => [("reason", "Mecânico indisponível"), ("executionId", Id())],
+        nameof(ExecutionCancelled) => [("executionId", Id())],
+        nameof(ExecutionCancelRejected) => [("reason", "Execução em reparo"), ("executionId", Id())],
         nameof(ExecutionCompleted) => [("executionId", Id()), ("completedAtUtc", Instante), ("consumedItems", Pecas())],
         nameof(ExecutionFailed) => [("reason", "Peça danificada na instalação"), ("executionId", Id()), ("consumedItems", Pecas())],
         nameof(InventoryReleased) => [("reservationId", Id()), ("releasedItems", Pecas())],

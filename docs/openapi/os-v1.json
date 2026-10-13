@@ -1581,6 +1581,150 @@
         }
       }
     },
+    "/os/ordens-servico/{id}/saga/resolucao": {
+      "post": {
+        "tags": [
+          "OrdensServico"
+        ],
+        "summary": "Resolve uma Saga parada em ação manual: cancelar com compensação ou retomar a etapa (ADR-020).",
+        "description": "O motivo e o usuário ficam no histórico da Saga. Pagamento divergente só aceita Cancelar.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolverAcaoManualRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolverAcaoManualRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolverAcaoManualRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "Resolução registrada; compensação ou retomada seguem pela Saga."
+          },
+          "400": {
+            "description": "Motivo ausente.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A Saga não está em ação manual, ou Retomar não vale para a causa.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/os/ordens-servico/{id}/entrega": {
       "post": {
         "tags": [
@@ -1690,8 +1834,8 @@
         "tags": [
           "OrdensServico"
         ],
-        "summary": "Cancela a OS a partir de um status não terminal e encerra a Saga.",
-        "description": "Ainda sem compensação: reserva e pagamento não são desfeitos (CARD-40b).",
+        "summary": "Pede o cancelamento da OS pela Saga (ADR-020).",
+        "description": "Sem efeito a desfazer, encerra na hora (204). Com reserva, pagamento ou execução em andamento, a Saga\r\n            libera, estorna ou pede o cancelamento a Operações (202): o resultado aparece no status e na Saga. Com o reparo\r\n            já começado, Operações recusa e a OS segue em execução.",
         "parameters": [
           {
             "name": "id",
@@ -1747,6 +1891,9 @@
           "204": {
             "description": "No Content"
           },
+          "202": {
+            "description": "Cancelamento pedido; a Saga compensa ou espera a resposta de um participante."
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -1768,7 +1915,7 @@
             }
           },
           "422": {
-            "description": "OS Finalizada, Entregue ou já Cancelada.",
+            "description": "OS encerrada ou Saga em ação manual.",
             "content": {
               "text/plain": {
                 "schema": {
@@ -3111,6 +3258,13 @@
         },
         "additionalProperties": false
       },
+      "AcaoResolucao": {
+        "enum": [
+          "Cancelar",
+          "Retomar"
+        ],
+        "type": "string"
+      },
       "AcompanhamentoOSResponse": {
         "type": "object",
         "properties": {
@@ -3402,7 +3556,8 @@
           "Compensating",
           "CompensationPending",
           "ManualActionRequired",
-          "Compensated"
+          "Compensated",
+          "CancellingExecution"
         ],
         "type": "string"
       },
@@ -3582,6 +3737,19 @@
           }
         },
         "additionalProperties": {}
+      },
+      "ResolverAcaoManualRequest": {
+        "type": "object",
+        "properties": {
+          "acao": {
+            "$ref": "#/components/schemas/AcaoResolucao"
+          },
+          "motivo": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
       },
       "SagaOrdemServicoResponse": {
         "type": "object",

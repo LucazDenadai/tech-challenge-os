@@ -4,6 +4,7 @@ using Moq;
 using OficinaMecanica.OS.Application.Contratos.Saga;
 using OficinaMecanica.OS.Application.Ports.Out;
 using OficinaMecanica.OS.Application.UseCases.Mensageria;
+using OficinaMecanica.OS.Application.UseCases.Saga;
 using OficinaMecanica.OS.Domain.Enums;
 using OficinaMecanica.OS.Domain.Saga;
 using OficinaMecanica.OS.UnitTests.Contratos;
@@ -39,7 +40,7 @@ public class ProcessarMensagemSagaUseCaseTests
         _clientes.Setup(c => c.ObterPorIdAsync(_cliente.Id, default)).ReturnsAsync(_cliente);
 
         _sut = new ProcessarMensagemSagaUseCase(_transacao.Object, _inbox.Object, _sagas.Object, _ordens.Object,
-            _clientes.Object, _outbox.Object, NullLogger<ProcessarMensagemSagaUseCase>.Instance);
+            new ComandosSaga(_clientes.Object, _outbox.Object), NullLogger<ProcessarMensagemSagaUseCase>.Instance);
     }
 
     // Exemplo válido do canal, endereçado à Saga do teste.
@@ -152,18 +153,46 @@ public class ProcessarMensagemSagaUseCaseTests
         _ordens.Verify(o => o.SalvarAsync(default), Times.Once);
     }
 
-    [Theory]
-    [InlineData("saga-os.payment-declined.v1")]
-    [InlineData("saga-os.execution-failed.v1")]
-    [InlineData("saga-os.payment-refunded.v1")]
-    public async Task EventoDoCard40b_ForaDoFluxo(string canal)
+    [Fact]
+    public async Task PagamentoRecusado_PedeLiberacaoDaReserva()
     {
         LevarAte(EstadoSaga.AwaitingPayment);
 
-        var resultado = await Processar(canal, Mensagem(canal));
+        var resultado = await Processar("saga-os.payment-declined.v1", Mensagem("saga-os.payment-declined.v1",
+            m => m["paymentId"] = _saga.PaymentId!.Value.ToString()));
 
-        Assert.Equal(StatusRecebimento.ForaDoFluxo, resultado.Status);
-        Assert.Equal(EstadoSaga.AwaitingPayment, _saga.Estado);
+        Assert.Equal(StatusRecebimento.Aplicada, resultado.Status);
+        Assert.Equal(EstadoSaga.ReleasingReservation, _saga.Estado);
+        _outbox.Verify(o => o.Adicionar(It.Is<InventoryReleaseRequested>(r => r.ReservationId == _saga.ReservationId)), Times.Once);
+    }
+
+    [Fact]
+    public async Task ConfirmacaoParcialDaCompensacao_NaoPublicaNada()
+    {
+        LevarAte(EstadoSaga.AwaitingPayment);
+        _saga.AprovarPagamento(new Causa("PaymentApproved.v1", Guid.NewGuid()), _saga.PaymentId!.Value, 100m, "BRL");
+        _saga.RegistrarInicioExecucao(new Causa("ExecutionStarted.v1", Guid.NewGuid()), _saga.ExecutionId!.Value);
+        _saga.FalharExecucao(new Causa("ExecutionFailed.v1", Guid.NewGuid()), _saga.ExecutionId!.Value, "Falha");
+        StatusDaSaga.Sincronizar(_os, _saga);
+
+        var resultado = await Processar("saga-os.payment-refunded.v1", Mensagem("saga-os.payment-refunded.v1",
+            m => m["paymentId"] = _saga.PaymentId!.Value.ToString()));
+
+        Assert.Equal(StatusRecebimento.Aplicada, resultado.Status);
+        Assert.Equal(EstadoSaga.Compensating, _saga.Estado);
+        _outbox.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task ReservaDepoisDoCancelamento_PedeLiberacao()
+    {
+        _saga.SolicitarCancelamento("Cliente desistiu");
+
+        var resultado = await Processar("saga-os.inventory-reserved.v1", Mensagem("saga-os.inventory-reserved.v1"));
+
+        Assert.Equal(StatusRecebimento.Aplicada, resultado.Status);
+        Assert.Equal(EstadoSaga.Cancelled, _saga.Estado);
+        _outbox.Verify(o => o.Adicionar(It.IsAny<InventoryReleaseRequested>()), Times.Once);
     }
 
     // Avança a Saga direto pelo domínio; devolve o quoteId do orçamento registrado.

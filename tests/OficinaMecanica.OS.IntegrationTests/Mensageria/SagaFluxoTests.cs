@@ -1,67 +1,18 @@
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using OficinaMecanica.OS.IntegrationTests.Api;
 using OficinaMecanica.OS.IntegrationTests.Fixtures;
-using RabbitMQ.Client;
-using Testcontainers.RabbitMq;
 
 namespace OficinaMecanica.OS.IntegrationTests.Mensageria;
 
-// Fluxo normal da Saga pelo broker real (CARD-40a). O teste faz o papel de Billing e Operações: publica os eventos
-// nas exchanges deles e lê, em filas próprias, os comandos que o OS publica pela outbox.
+// Fluxo normal da Saga pelo broker real (CARD-40a).
 [Collection(PostgresCollection.Nome)]
-public class SagaFluxoTests(PostgresFixture postgres) : IAsyncLifetime
+public class SagaFluxoTests(PostgresFixture postgres) : SagaBrokerTeste(postgres)
 {
-    private static readonly string[] _comandos =
-    [
-        "saga-os.diagnosis-requested.v1", "saga-os.quote-requested.v1", "saga-os.inventory-reservation-requested.v1",
-        "saga-os.payment-creation-requested.v1", "saga-os.execution-start-requested.v1"
-    ];
-
-    private readonly RabbitMqContainer _rabbit = new RabbitMqBuilder("rabbitmq:3.13-alpine")
-        .WithUsername("os-teste")
-        .WithPassword("os-teste-senha")
-        .Build();
-
-    private string _banco = null!;
-    private Uri _uri = null!;
-    private OsApiFactory _factory = null!;
-    private IConnection _conexao = null!;
-    private IChannel _canal = null!;
-
-    public async Task InitializeAsync()
-    {
-        await _rabbit.StartAsync();
-        _uri = new Uri(_rabbit.GetConnectionString());
-        _banco = postgres.NovoBancoVazio();
-
-        _conexao = await new ConnectionFactory { Uri = _uri, UserName = "os-teste", Password = "os-teste-senha" }.CreateConnectionAsync();
-        _canal = await _conexao.CreateChannelAsync();
-        foreach (var canal in _comandos)
-        {
-            // Filas do "participante" do teste, ligadas antes de o OS publicar qualquer comando.
-            await _canal.ExchangeDeclareAsync(canal, ExchangeType.Fanout, durable: true, autoDelete: false);
-            await _canal.QueueDeclareAsync(Fila(canal), durable: false, exclusive: false, autoDelete: false);
-            await _canal.QueueBindAsync(Fila(canal), canal, string.Empty);
-        }
-
-        await SubirOsAsync();
-    }
-
-    public async Task DisposeAsync()
-    {
-        await _canal.DisposeAsync();
-        await _conexao.DisposeAsync();
-        await _factory.DisposeAsync();
-        await _rabbit.DisposeAsync();
-    }
-
     [Fact]
     public async Task FluxoNormal_DaAberturaAConclusao_ComReinicioNoMeio()
     {
-        var saga = await CenarioSaga.AbrirOsAsync(_factory);
+        var saga = await CenarioSaga.AbrirOsAsync(Factory);
         var peca = Guid.NewGuid();
         var execucao = Guid.NewGuid();
         var quote = Guid.NewGuid();
@@ -105,8 +56,7 @@ public class SagaFluxoTests(PostgresFixture postgres) : IAsyncLifetime
         await PublicarAsync("saga-os.quote-approved.v1", "QuoteApproved.v1", "billing", saga, aprovacao);
 
         // O OS reinicia: a Saga continua do estado gravado.
-        await _factory.DisposeAsync();
-        await SubirOsAsync();
+        await ReiniciarOsAsync();
         Assert.Equal(0u, await ContarAsync("saga-os.inventory-reservation-requested.v1"));
 
         // Operações reserva → OS pede o pagamento com valor aprovado e e-mail do cliente.
@@ -143,18 +93,18 @@ public class SagaFluxoTests(PostgresFixture postgres) : IAsyncLifetime
         var final = await AguardarEstadoAsync(saga, "Completed");
         Assert.True(final.GetProperty("terminada").GetBoolean());
 
-        var http = await _factory.ClienteFuncionarioAsync(CenarioSaga.Atendente);
+        var http = await Factory.ClienteFuncionarioAsync(CenarioSaga.Atendente);
         var status = await http.GetFromJsonAsync<JsonElement>($"/os/ordens-servico/{saga.OsId}/status");
         Assert.Equal("Finalizada", status.GetProperty("status").GetString());
         // Nenhum comando duplicado ficou pendente em nenhuma fila.
-        foreach (var canal in _comandos)
+        foreach (var canal in Comandos)
             Assert.Equal(0u, await ContarAsync(canal));
     }
 
     [Fact]
     public async Task OrcamentoRecusado_CancelaSemPedirReservaNemPagamento()
     {
-        var saga = await CenarioSaga.AbrirOsAsync(_factory);
+        var saga = await CenarioSaga.AbrirOsAsync(Factory);
         var quote = Guid.NewGuid();
         await ReceberAsync("saga-os.diagnosis-requested.v1");
 
@@ -182,73 +132,5 @@ public class SagaFluxoTests(PostgresFixture postgres) : IAsyncLifetime
         await Task.Delay(1000);
         Assert.Equal(0u, await ContarAsync("saga-os.inventory-reservation-requested.v1"));
         Assert.Equal(0u, await ContarAsync("saga-os.payment-creation-requested.v1"));
-    }
-
-    private async Task SubirOsAsync()
-    {
-        _factory = new OsApiFactory(_banco, new Dictionary<string, string?>
-        {
-            ["RabbitMq:Enabled"] = "true",
-            ["RabbitMq:Host"] = _uri.Host,
-            ["RabbitMq:Port"] = _uri.Port.ToString(),
-            ["RabbitMq:Username"] = "os-teste",
-            ["RabbitMq:Password"] = "os-teste-senha",
-            ["RabbitMq:IntervaloOutboxMs"] = "100"
-        });
-        var http = _factory.CreateClient();
-        await Aguardar(async () => (await http.GetAsync("/os/ready")).IsSuccessStatusCode);
-    }
-
-    private static string Fila(string canal) => $"teste.{canal}";
-
-    // Publica um evento de participante para a Saga; devolve o messageId usado.
-    private async Task<Guid> PublicarAsync(string canal, string tipo, string produtor, SagaAberta saga, JsonObject payload, Guid? messageId = null)
-    {
-        var id = messageId ?? Guid.NewGuid();
-        var mensagem = new JsonObject
-        {
-            ["messageId"] = id.ToString(), ["messageType"] = tipo, ["schemaVersion"] = 1, ["producer"] = produtor,
-            ["occurredAtUtc"] = DateTimeOffset.UtcNow.ToString("O"), ["correlationId"] = saga.CorrelationId.ToString(),
-            ["causationId"] = Guid.NewGuid().ToString(), ["osId"] = saga.OsId.ToString(), ["filialId"] = saga.FilialId.ToString()
-        };
-        foreach (var (campo, valor) in payload)
-            mensagem[campo] = valor?.DeepClone();
-
-        await _canal.BasicPublishAsync(canal, string.Empty, mandatory: false,
-            new BasicProperties { ContentType = "application/json", Persistent = true },
-            Encoding.UTF8.GetBytes(mensagem.ToJsonString()));
-        return id;
-    }
-
-    private async Task<JsonNode> ReceberAsync(string canal)
-    {
-        BasicGetResult? resultado = null;
-        await Aguardar(async () => (resultado = await _canal.BasicGetAsync(Fila(canal), autoAck: true)) is not null);
-        return JsonNode.Parse(Encoding.UTF8.GetString(resultado!.Body.Span))!;
-    }
-
-    private async Task<uint> ContarAsync(string canal) => (await _canal.QueueDeclarePassiveAsync(Fila(canal))).MessageCount;
-
-    private async Task<JsonElement> AguardarEstadoAsync(SagaAberta saga, string estado)
-    {
-        var http = await _factory.ClienteFuncionarioAsync(CenarioSaga.Atendente);
-        JsonElement corpo = default;
-        await Aguardar(async () =>
-        {
-            corpo = await http.GetFromJsonAsync<JsonElement>($"/os/ordens-servico/{saga.OsId}/saga");
-            return corpo.GetProperty("estado").GetString() == estado;
-        });
-        return corpo;
-    }
-
-    private static async Task Aguardar(Func<Task<bool>> condicao)
-    {
-        var limite = DateTime.UtcNow.AddSeconds(30);
-        while (DateTime.UtcNow < limite)
-        {
-            if (await condicao()) return;
-            await Task.Delay(200);
-        }
-        Assert.Fail("Condição não atendida em 30 s.");
     }
 }

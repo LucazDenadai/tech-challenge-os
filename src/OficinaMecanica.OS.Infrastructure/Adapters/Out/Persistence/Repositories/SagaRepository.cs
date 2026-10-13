@@ -13,10 +13,21 @@ public class SagaRepository(AppDbContext context) : ISagaRepository
         => await context.Sagas.AddAsync(saga, ct);
 
     public Task<SagaOrdemServico?> ObterPorOsAsync(Guid osId, CancellationToken ct = default)
-        => context.Sagas
-            .Include(s => s.Transicoes)
-            .AsSplitQuery()
-            .SingleOrDefaultAsync(s => s.OsId == osId, ct);
+        => Completas.SingleOrDefaultAsync(s => s.OsId == osId, ct);
+
+    public Task<SagaOrdemServico?> ObterAsync(Guid sagaId, CancellationToken ct = default)
+        => Completas.SingleOrDefaultAsync(s => s.Id == sagaId, ct);
+
+    public async Task<IReadOnlyList<Guid>> ListarComPrazoVencidoAsync(DateTime etapaIniciadaAte, int maximo, CancellationToken ct = default)
+        => await context.Sagas
+            // Enumerable.Contains explícito: no C# 14, array.Contains vira a sobrecarga de ReadOnlySpan, que o EF não traduz.
+            .Where(s => Enumerable.Contains(SagaOrdemServico.EstadosComPrazo, s.Estado) && s.EtapaIniciadaEm <= etapaIniciadaAte)
+            .OrderBy(s => s.EtapaIniciadaEm)
+            .Select(s => s.Id)
+            .Take(maximo)
+            .ToListAsync(ct);
+
+    private IQueryable<SagaOrdemServico> Completas => context.Sagas.Include(s => s.Transicoes).AsSplitQuery();
 }
 
 public class OutboxRepository(AppDbContext context) : IOutbox

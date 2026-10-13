@@ -18,6 +18,7 @@ using OficinaMecanica.OS.Application.UseCases.Cliente;
 using OficinaMecanica.OS.Application.UseCases.Filial;
 using OficinaMecanica.OS.Application.UseCases.Mensageria;
 using OficinaMecanica.OS.Application.UseCases.OrdemServico;
+using OficinaMecanica.OS.Application.UseCases.Saga;
 using OficinaMecanica.OS.Application.UseCases.Usuario;
 using OficinaMecanica.OS.Application.UseCases.Veiculo;
 using OficinaMecanica.OS.Infrastructure;
@@ -56,6 +57,11 @@ builder.Services.AddScoped<ConsultarStatusOSUseCase>();
 builder.Services.AddScoped<AtualizarStatusOSUseCase>();
 builder.Services.AddScoped<AcompanharOSUseCase>();
 builder.Services.AddScoped<ConsultarSagaUseCase>();
+builder.Services.AddScoped<ComandosSaga>();
+builder.Services.AddScoped<GravacaoSaga>();
+builder.Services.AddScoped<CancelarOrdemServicoUseCase>();
+builder.Services.AddScoped<ResolverAcaoManualUseCase>();
+builder.Services.AddScoped<VerificarPrazoSagaUseCase>();
 builder.Services.AddScoped<ProcessarMensagemSagaUseCase>();
 
 // ── Autenticação: JWT (funcionários e clientes) e chave de API interna (Lambda) ─

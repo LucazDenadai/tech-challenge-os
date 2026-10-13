@@ -3,7 +3,6 @@ using Moq;
 using OficinaMecanica.OS.Application.Ports.Out;
 using OficinaMecanica.OS.Application.UseCases.OrdemServico;
 using OficinaMecanica.OS.Domain.Enums;
-using OficinaMecanica.OS.Domain.Saga;
 using DomainOS = OficinaMecanica.OS.Domain.Entities.OrdemServico;
 using DomainCliente = OficinaMecanica.OS.Domain.Entities.Cliente;
 
@@ -12,14 +11,13 @@ namespace OficinaMecanica.OS.UnitTests.UseCases.OS;
 public class AtualizarStatusOSUseCaseTests
 {
     private readonly Mock<IOrdemServicoRepository> _repoMock = new();
-    private readonly Mock<ISagaRepository> _sagaRepoMock = new();
     private readonly Mock<IEmailPort> _emailMock = new();
     private readonly Mock<IClienteRepository> _clienteRepoMock = new();
     private readonly AtualizarStatusOSUseCase _sut;
 
     public AtualizarStatusOSUseCaseTests()
     {
-        _sut = new AtualizarStatusOSUseCase(_repoMock.Object, _sagaRepoMock.Object, _emailMock.Object, _clienteRepoMock.Object, NullLogger<AtualizarStatusOSUseCase>.Instance);
+        _sut = new AtualizarStatusOSUseCase(_repoMock.Object, _emailMock.Object, _clienteRepoMock.Object, NullLogger<AtualizarStatusOSUseCase>.Instance);
     }
 
     private static DomainOS CriarOS(Guid? clienteId = null)
@@ -34,21 +32,6 @@ public class AtualizarStatusOSUseCaseTests
         await _sut.ExecutarAsync(os.Id, StatusOrdemServico.AguardandoAprovacao);
 
         Assert.Equal(StatusOrdemServico.AguardandoAprovacao, os.Status);
-        _repoMock.Verify(r => r.SalvarAsync(default), Times.Once);
-    }
-
-    [Fact]
-    public async Task ExecutarAsync_Cancelamento_EncerraASagaAtiva()
-    {
-        var os = CriarOS();
-        var saga = SagaOrdemServico.Iniciar(os);
-        _repoMock.Setup(r => r.ObterComDetalhesAsync(os.Id, default)).ReturnsAsync(os);
-        _sagaRepoMock.Setup(r => r.ObterPorOsAsync(os.Id, default)).ReturnsAsync(saga);
-
-        await _sut.ExecutarAsync(os.Id, StatusOrdemServico.Cancelada);
-
-        Assert.Equal(EstadoSaga.Cancelled, saga.Estado);
-        Assert.Equal("CancelamentoManual", saga.Transicoes.Last().Causa);
         _repoMock.Verify(r => r.SalvarAsync(default), Times.Once);
     }
 

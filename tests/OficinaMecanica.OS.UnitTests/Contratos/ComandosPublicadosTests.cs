@@ -12,6 +12,7 @@ public class ComandosPublicadosTests
     private static readonly Guid _quote = Guid.NewGuid();
     private static readonly Guid _reserva = Guid.NewGuid();
     private static readonly Guid _causa = Guid.NewGuid();
+    private static readonly Guid _pagamento = Guid.NewGuid();
 
     [Fact]
     public void Publicados_CorrespondemAosCanaisDaSpecCujoProdutorEOOS()
@@ -23,7 +24,10 @@ public class ComandosPublicadosTests
             Assert.Equal(SpecAsyncApi.NomeVersionado(spec[canal.Endereco]), canal.MessageType);
     }
 
-    public static TheoryData<string> Comandos() => new() { "diagnostico", "orcamento", "reserva", "pagamento", "execucao" };
+    public static TheoryData<string> Comandos() => new()
+    {
+        "diagnostico", "orcamento", "reserva", "pagamento", "execucao", "execucao-sem-reserva", "liberacao", "estorno", "cancelamento-execucao"
+    };
 
     [Theory]
     [MemberData(nameof(Comandos))]
@@ -37,6 +41,10 @@ public class ComandosPublicadosTests
             "reserva" => ComandoSaga.Reserva(saga, _causa),
             "pagamento" => ComandoSaga.Pagamento(saga, _causa, "cliente@exemplo.com"),
             "execucao" => ComandoSaga.InicioExecucao(saga, _causa),
+            "execucao-sem-reserva" => ComandoSaga.InicioExecucao(SagaSoServico(), _causa),
+            "liberacao" => ComandoSaga.Liberacao(saga, _causa),
+            "estorno" => ComandoSaga.Estorno(saga, _causa),
+            "cancelamento-execucao" => ComandoSaga.CancelamentoExecucao(saga, _causa),
             _ => throw new ArgumentOutOfRangeException(nameof(caso))
         };
 
@@ -45,11 +53,31 @@ public class ComandosPublicadosTests
 
         Assert.True(SpecAsyncApi.Valida(nome, json), $"A spec rejeitou {comando.MessageType}: {json.ToJsonString()}");
         Assert.Equal("os", json["producer"]!.GetValue<string>());
-        Assert.Equal(saga.Id.ToString(), json["correlationId"]!.GetValue<string>());
-        Assert.Equal(saga.OsId.ToString(), json["osId"]!.GetValue<string>());
-        Assert.StartsWith($"os:{saga.OsId}:", json["idempotencyKey"]!.GetValue<string>());
+        Assert.StartsWith("os:", json["idempotencyKey"]!.GetValue<string>());
         // Só o primeiro comando da Saga não tem causa (spec, campo causationId).
         Assert.Equal(caso != "diagnostico", json["causationId"] is not null);
+    }
+
+    [Fact]
+    public void Estorno_ValorTotalAprovadoEChaveDaOs()
+    {
+        var saga = SagaPronta();
+
+        var estorno = ComandoSaga.Estorno(saga, null);
+
+        Assert.Equal(_pagamento, estorno.PaymentId);
+        Assert.Equal(217.70m, estorno.Amount);
+        Assert.Equal($"os:{saga.OsId}:refund", estorno.IdempotencyKey);
+        Assert.Null(estorno.CausationId);
+    }
+
+    [Fact]
+    public void DaEtapa_MontaUmComandoPorEtapaNaOrdem()
+    {
+        var comandos = ComandoSaga.DaEtapa(SagaPronta(), [ComandoEtapa.Estorno, ComandoEtapa.Liberacao], _causa, null);
+
+        Assert.IsType<PaymentRefundRequested>(comandos[0]);
+        Assert.IsType<InventoryReleaseRequested>(comandos[1]);
     }
 
     [Fact]
@@ -100,6 +128,21 @@ public class ComandosPublicadosTests
         saga.RegistrarOrcamento(new Causa("QuoteReady.v1", Guid.NewGuid()), _quote, 1, 217.70m, "BRL");
         saga.AprovarOrcamento(new Causa("QuoteApproved.v1", Guid.NewGuid()), _quote, 1);
         saga.RegistrarReserva(new Causa("InventoryReserved.v1", Guid.NewGuid()), _reserva);
+        saga.AprovarPagamento(new Causa("PaymentApproved.v1", Guid.NewGuid()), _pagamento, 217.70m, "BRL");
+        return saga;
+    }
+
+    // Diagnóstico só com serviço, já em StartingExecution: o início sai sem reservationId (ADR-020).
+    private static SagaOrdemServico SagaSoServico()
+    {
+        var os = new DomainOS("OS-002", Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "");
+        var saga = SagaOrdemServico.Iniciar(os);
+        saga.RegistrarDiagnostico(new Causa("DiagnosisCompleted.v1", Guid.NewGuid()), _execucao, "BRL", DateTimeOffset.UtcNow,
+            [new ItemDiagnostico(Guid.NewGuid(), TipoItemDiagnostico.Servico, "Balanceamento", 1, 80m)]);
+        saga.RegistrarOrcamento(new Causa("QuoteReady.v1", Guid.NewGuid()), _quote, 1, 80m, "BRL");
+        saga.AprovarOrcamento(new Causa("QuoteApproved.v1", Guid.NewGuid()), _quote, 1);
+        saga.AprovarPagamento(new Causa("PaymentApproved.v1", Guid.NewGuid()), _pagamento, 80m, "BRL");
+        Assert.Equal(EstadoSaga.StartingExecution, saga.Estado);
         return saga;
     }
 }

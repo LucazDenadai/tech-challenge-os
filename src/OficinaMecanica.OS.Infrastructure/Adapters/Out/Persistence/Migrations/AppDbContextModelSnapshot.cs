@@ -284,6 +284,12 @@ namespace OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Migrations
                     b.Property<DateTime?>("AtualizadoEm")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("CancelamentoSolicitado")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("CausaManual")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("ClienteId")
                         .HasColumnType("uuid");
 
@@ -293,11 +299,26 @@ namespace OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Migrations
                     b.Property<int>("Estado")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("EstadoRetomada")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("EstornoConfirmado")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("EstornoPendente")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("EtapaIniciadaEm")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("ExecutionId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("FilialId")
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("LiberacaoConfirmada")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("MoedaDiagnostico")
                         .HasMaxLength(3)
@@ -314,6 +335,9 @@ namespace OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Migrations
                     b.Property<Guid>("OsId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("PagamentoAprovado")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid?>("PaymentId")
                         .HasColumnType("uuid");
 
@@ -324,6 +348,9 @@ namespace OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<int?>("QuoteVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Reenvios")
                         .HasColumnType("integer");
 
                     b.Property<Guid?>("ReservationId")

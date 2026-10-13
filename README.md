@@ -1,6 +1,6 @@
 # tech-challenge-os
 
-Serviço **OS** da Fase 4 do Tech Challenge (oficina mecânica). É dono de clientes, veículos, filiais, usuários funcionários e da ordem de serviço, com status e histórico. Também hospeda a Saga orquestrada da OS (ADR-017): o fluxo normal está no CARD-40a; compensações e falhas, no CARD-40b.
+Serviço **OS** da Fase 4 do Tech Challenge (oficina mecânica). É dono de clientes, veículos, filiais, usuários funcionários e da ordem de serviço, com status e histórico. Também hospeda a Saga orquestrada da OS (ADR-017 e ADR-020): fluxo normal (CARD-40a) e compensações, cancelamento e prazos (CARD-40b).
 
 Decisões e contratos ficam em [tech-challenge-docs](https://github.com/LucazDenadai/tech-challenge-docs): limites e ownership ([ADR-014](https://github.com/LucazDenadai/tech-challenge-docs/blob/main/adr/ADR-014-limites-microsservicos-fase4.md), [ADR-015](https://github.com/LucazDenadai/tech-challenge-docs/blob/main/adr/ADR-015-ownership-e-infraestrutura-fase4.md)), banco ([ADR-016](https://github.com/LucazDenadai/tech-challenge-docs/blob/main/adr/ADR-016-bancos-sql-nosql-fase4.md)), Saga ([ADR-017](https://github.com/LucazDenadai/tech-challenge-docs/blob/main/adr/ADR-017-saga-orquestrada-os-fase4.md)) e contratos assíncronos ([ADR-018](https://github.com/LucazDenadai/tech-challenge-docs/blob/main/adr/ADR-018-contratos-assincronos-asyncapi-fase4.md)).
 
@@ -28,6 +28,7 @@ Nenhum segredo é versionado. Em execução, todos chegam por variável de ambie
 | `Interno__ApiKey` | Chave do cabeçalho `X-Api-Key` do endpoint interno da Lambda. |
 | `RabbitMq__Enabled`, `__Host`, `__Port`, `__VirtualHost`, `__Username`, `__Password` | Consumidor e despachante da Saga. Habilitado, exige usuário e senha. |
 | `RabbitMq__IntervaloOutboxMs` | Intervalo de leitura da outbox (padrão 500 ms). |
+| `Saga__PrazoRespostaMinutos`, `__MaxReenvios`, `__IntervaloVerificacaoSegundos`, `__VerificacaoHabilitada` | Prazo das etapas que esperam participante (padrão 5 min), reenvios antes da ação manual (3) e intervalo da verificação (30 s). |
 | `Cors__Origins__0` | Origem permitida. Obrigatória fora de `Development`/`Test`. |
 | `Jaeger__Endpoint` | Coletor OTLP/HTTP dos traces. |
 
@@ -56,7 +57,9 @@ O seed cria a filial `FILIAL-DEMO` com `Id` fixo `378aeb39-37f6-43c1-9526-5b1a9f
 | `POST /os/ordens-servico` | Admin, Atendente | Abre a OS em `EmDiagnostico` e inicia a Saga. Cliente sem e-mail válido: `422`. |
 | `GET /os/ordens-servico[/{id}[/status\|/historico]]` | funcionários | Lista, detalhe, status e histórico |
 | `GET /os/ordens-servico/{id}/saga` | Admin, Atendente | Estado da Saga, referências de orçamento, reserva, pagamento e execução, e transições. Sem dados do cliente. |
-| `POST /os/ordens-servico/{id}/entrega`, `/cancelamento` | Admin, Atendente | Únicas transições manuais. O resto do status muda pela Saga (ADR-017). O cancelamento também encerra a Saga, ainda sem compensação (CARD-40b). |
+| `POST /os/ordens-servico/{id}/entrega` | Admin, Atendente | Finalizada → Entregue, fora da Saga. |
+| `POST /os/ordens-servico/{id}/cancelamento` | Admin, Atendente | Pede o cancelamento pela Saga (ADR-020): `204` quando nada precisa ser desfeito; `202` quando a Saga libera, estorna ou pede o cancelamento a Operações. `422` com a OS encerrada ou em ação manual. |
+| `POST /os/ordens-servico/{id}/saga/resolucao` | Admin | Resolve `ManualActionRequired`: `{ "acao": "Cancelar" \| "Retomar", "motivo": "..." }`. Motivo e usuário vão para o histórico da Saga. |
 | `GET /os/ordens-servico/acompanhar/{numero}` | Cliente (JWT da Lambda) | Acompanhamento só das próprias OS |
 | `POST /os/interno/clientes/busca-por-cpf` | `X-Api-Key` | Devolve `clienteId` e `ativo` para a Lambda. Não deve ser exposto no API Gateway. |
 
@@ -64,9 +67,9 @@ Todas as respostas devolvem o cabeçalho `X-Correlation-Id`, recebido ou gerado.
 
 ## Mensageria
 
-O serviço consome os 21 canais cujo consumidor é o OS no AsyncAPI e publica os 7 comandos da Saga. Para cada canal consumido `saga-os.<mensagem>.v1` (exchange fanout), declara a fila `os.<canal>` e a DLQ `os.<canal>.dlq`.
+O serviço consome os 23 canais cujo consumidor é o OS no AsyncAPI e publica os 8 comandos da Saga. Para cada canal consumido `saga-os.<mensagem>.v1` (exchange fanout), declara a fila `os.<canal>` e a DLQ `os.<canal>.dlq`.
 
-### Saga (CARD-40a)
+### Saga: fluxo normal (CARD-40a)
 
 A abertura grava a OS, a Saga em `Diagnosing` e `DiagnosisRequested` na outbox no mesmo commit. Depois, cada mensagem recebida é aplicada em uma transação do PostgreSQL do OS: inbox, transição da Saga, status e histórico da OS e o próximo comando na outbox.
 
@@ -74,19 +77,36 @@ A abertura grava a OS, a Saga em `Diagnosing` e `DiagnosisRequested` na outbox n
 |---|---|---|---|
 | `Diagnosing` | `DiagnosisCompleted` / `DiagnosisRejected` | `RequestingQuote` / `Cancelled` | `QuoteRequested` / — |
 | `RequestingQuote` | `QuoteReady` / `QuoteRejected` | `AwaitingApproval` / `Cancelled` | — |
-| `AwaitingApproval` | `QuoteApproved` / `QuoteDeclined`, `QuoteExpired` | `ReservingInventory` / `Cancelled` | `InventoryReservationRequested` (só peças) / — |
+| `AwaitingApproval` | `QuoteApproved` / `QuoteDeclined`, `QuoteExpired` | `ReservingInventory` (sem peças: `CreatingPayment`) / `Cancelled` | `InventoryReservationRequested` (só peças) ou `PaymentCreationRequested` / — |
 | `ReservingInventory` | `InventoryReserved` / `InventoryReservationRejected` | `CreatingPayment` / `Cancelled` | `PaymentCreationRequested` (com `payerEmail`) / — |
 | `CreatingPayment` | `PaymentPending` | `AwaitingPayment` | — |
 | `CreatingPayment`, `AwaitingPayment` | `PaymentApproved` | `StartingExecution` | `ExecutionStartRequested` |
-| `StartingExecution` | `ExecutionStarted` | `InExecution` | — |
+| `StartingExecution` | `ExecutionStarted` | `InExecution` | — (sem reserva, o início sai sem `reservationId`) |
 | `InExecution` | `ExecutionCompleted` | `Completed` | — |
 
 - **Status da OS:** derivado do estado da Saga pela tabela do ADR-017, na mesma transação.
 - **`idempotencyKey`:** `os:<osId>:<etapa>` (`diagnosis`, `quote:1`, `reservation`, `payment:<versão>`, `execution`). Reprocessar o mesmo evento gera a mesma chave.
-- **Fora do fluxo:** mensagem válida que não se aplica ao estado atual (atrasada, repetida com outro `messageId` ou de estado terminal) é confirmada sem mudar nada, com log de aviso. Os eventos de compensação (`PaymentDeclined`, `PaymentOutcomeUnknown`, `ExecutionStartRejected`, `ExecutionFailed`, `InventoryReleased` e estornos) caem aqui até o CARD-40b.
-- **Ação manual:** diagnóstico sem peças (o contrato exige reserva para iniciar a execução) e pagamento aprovado com valor ou moeda diferentes do orçamento param a Saga em `ManualActionRequired`.
+- **Fora do fluxo:** mensagem válida que não se aplica ao estado atual (atrasada, repetida com outro `messageId` ou de estado terminal) é confirmada sem mudar nada, com log de aviso.
+
+### Saga: compensações, cancelamento e prazos (CARD-40b)
+
+| Estado | Mensagem ou ação | Novo estado | Comandos |
+|---|---|---|---|
+| `CreatingPayment`, `AwaitingPayment` | `PaymentOutcomeUnknown` | `ReconcilingPayment` | — (mantém a reserva) |
+| `CreatingPayment`, `AwaitingPayment`, `ReconcilingPayment` | `PaymentDeclined` | `ReleasingReservation` (sem reserva: `Cancelled`) | `InventoryReleaseRequested` |
+| `ReleasingReservation` | `InventoryReleased` | `Cancelled` | — |
+| `StartingExecution` / `InExecution` | `ExecutionStartRejected` / `ExecutionFailed` | `Compensating` | `PaymentRefundRequested` e `InventoryReleaseRequested` |
+| `InExecution` | cancelamento pela API | `CancellingExecution` | `ExecutionCancelRequested` |
+| `CancellingExecution` | `ExecutionCancelled` / `ExecutionCancelRejected` | `Compensating` / `InExecution` | estorno e liberação / — |
+| `Compensating` | `PaymentRefunded` e `InventoryReleased` | `Compensated` quando os dois chegam | — |
+| `Compensating` | `PaymentRefundPending` / `PaymentRefundFailed` | `Compensating` / `ManualActionRequired` | — |
+
+- **Cancelamento com participante respondendo** (`ReservingInventory` até `StartingExecution`): o pedido fica registrado e a resposta decide. Reserva confirmada vira liberação; pagamento aprovado vira estorno e liberação; execução iniciada vira `ExecutionCancelRequested`.
+- **Efeito depois do encerramento:** `InventoryReserved` ou `PaymentApproved` que chega com a Saga já cancelada pede liberação ou estorno, para não prender estoque nem dinheiro.
+- **Prazos:** etapas que esperam participante (`RequestingQuote`, `ReservingInventory`, `CreatingPayment`, `StartingExecution`, `ReleasingReservation`, `Compensating`, `CancellingExecution`) reenviam os comandos com a mesma `idempotencyKey` a cada prazo vencido. Esgotados os reenvios, a Saga vai para `ManualActionRequired`.
+- **Ação manual:** prazo esgotado, pagamento com valor ou moeda divergentes e estorno recusado. O Admin escolhe `Cancelar` (compensa o que foi confirmado) ou `Retomar` (volta à etapa e reenvia). Pagamento divergente só aceita `Cancelar`.
 - **Concorrência:** `xmin` da Saga como token. Duas mensagens da mesma Saga ao mesmo tempo: uma grava, a outra é refeita com o estado novo.
-- **Métrica:** `os_saga_mensagens` (tipo e resultado: `Aplicada`, `ForaDoFluxo`, `Duplicada`, `Rejeitada`), em `/metrics`.
+- **Métricas:** `os_saga_mensagens` (tipo e resultado: `Aplicada`, `ForaDoFluxo`, `Duplicada`, `Rejeitada`) e `os_saga_acao_manual` (causa), em `/metrics`.
 
 ### Recebimento e publicação
 

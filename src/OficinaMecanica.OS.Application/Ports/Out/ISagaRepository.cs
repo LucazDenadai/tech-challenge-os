@@ -9,6 +9,11 @@ public interface ISagaRepository
 
     // Saga com itens do diagnóstico e transições, para aplicar a próxima mensagem.
     Task<SagaOrdemServico?> ObterPorOsAsync(Guid osId, CancellationToken ct = default);
+
+    Task<SagaOrdemServico?> ObterAsync(Guid sagaId, CancellationToken ct = default);
+
+    // Sagas em estado com prazo cuja etapa começou até o limite. O filtro fino (reenvios já feitos) é do domínio.
+    Task<IReadOnlyList<Guid>> ListarComPrazoVencidoAsync(DateTime etapaIniciadaAte, int maximo, CancellationToken ct = default);
 }
 
 public interface IOutbox

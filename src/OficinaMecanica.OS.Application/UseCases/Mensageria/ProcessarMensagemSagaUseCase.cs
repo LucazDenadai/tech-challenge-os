@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using OficinaMecanica.OS.Application.Contratos.Saga;
 using OficinaMecanica.OS.Application.Exceptions;
 using OficinaMecanica.OS.Application.Ports.Out;
+using OficinaMecanica.OS.Application.UseCases.Saga;
 using OficinaMecanica.OS.Domain.Saga;
 
 namespace OficinaMecanica.OS.Application.UseCases.Mensageria;
@@ -12,7 +13,7 @@ public enum StatusRecebimento
 {
     // A mensagem mudou o estado da Saga.
     Aplicada,
-    // Válida, mas não se aplica ao estado atual (atrasada, de estado terminal ou de etapa do CARD-40b): nada muda.
+    // Válida, mas não se aplica ao estado atual (atrasada, repetida com outro messageId ou de estado terminal): nada muda.
     ForaDoFluxo,
     // messageId já registrado na inbox.
     Duplicada,
@@ -34,20 +35,21 @@ public static class MetricasSaga
         => _mensagens.Add(1, new KeyValuePair<string, object?>("message_type", messageType), new KeyValuePair<string, object?>("resultado", resultado.ToString()));
 }
 
-// Orquestrador da Saga (ADR-017, CARD-40a). Valida a mensagem contra o contrato do canal e, em uma transação do
-// PostgreSQL do OS, registra a inbox, aplica a transição da Saga, atualiza status e histórico da OS e grava o
-// próximo comando na outbox. Conflito de concorrência e falha de infraestrutura sobem como exceção: o consumidor
-// refaz a mensagem do zero, com escopo novo.
+// Orquestrador da Saga (ADR-017, CARD-40a e CARD-40b). Valida a mensagem contra o contrato do canal e, em uma
+// transação do PostgreSQL do OS, registra a inbox, aplica a transição da Saga, atualiza status e histórico da OS e
+// grava na outbox os comandos da nova etapa. Conflito de concorrência e falha de infraestrutura sobem como exceção:
+// o consumidor refaz a mensagem do zero, com escopo novo.
 public class ProcessarMensagemSagaUseCase(
     ITransacao transacao,
     IInboxRepository inbox,
     ISagaRepository sagas,
     IOrdemServicoRepository ordens,
-    IClienteRepository clientes,
-    IOutbox outbox,
+    ComandosSaga comandos,
     ILogger<ProcessarMensagemSagaUseCase> logger)
 {
-    private sealed record Efeito(bool Aplicada, MensagemSaga? Comando = null);
+    // Aplicada: a mensagem mudou a Saga. Extras: comandos fora da regra "nova etapa -> ComandosDaEtapa",
+    // usados quando um efeito chega depois do encerramento e precisa ser desfeito.
+    private sealed record Efeito(bool Aplicada, IReadOnlyCollection<ComandoEtapa>? Extras = null);
 
     public async Task<ResultadoRecebimento> ExecutarAsync(string canal, ReadOnlyMemory<byte> corpo, CancellationToken ct = default)
     {
@@ -75,14 +77,22 @@ public class ProcessarMensagemSagaUseCase(
                     throw new SagaDivergenteException($"correlationId '{mensagem.CorrelationId}' não é o da Saga da OS '{mensagem.OsId}'.");
 
                 var anterior = saga.Estado;
-                var efeito = await AplicarAsync(saga, mensagem, ct);
+                var efeito = Aplicar(saga, mensagem);
                 if (efeito.Aplicada)
                 {
                     var os = await ordens.ObterPorIdAsync(saga.OsId, ct) ?? throw new NotFoundException("OS", saga.OsId);
                     StatusDaSaga.Sincronizar(os, saga);
                     await ordens.AtualizarAsync(os, ct);
-                    if (efeito.Comando is { } comando)
-                        outbox.Adicionar(comando);
+
+                    // Nova etapa: os comandos dela. Mesma etapa (confirmação parcial, estorno pendente): nenhum.
+                    var etapas = efeito.Extras ?? (saga.Estado != anterior ? saga.ComandosDaEtapa() : []);
+                    await comandos.GravarAsync(saga, etapas, mensagem.MessageId, ct);
+                    if (saga.Estado == EstadoSaga.ManualActionRequired && anterior != EstadoSaga.ManualActionRequired)
+                    {
+                        MetricasAcaoManual.Registrar(saga.CausaManual!.Value);
+                        logger.LogError("Saga parada em ação manual. Causa={Causa} Motivo={Motivo} OsId={OsId}",
+                            saga.CausaManual, saga.Motivo, saga.OsId);
+                    }
                     logger.LogInformation("Saga {Anterior} → {Novo} por {MessageType}. OsId={OsId}",
                         anterior, saga.Estado, mensagem.MessageType, mensagem.OsId);
                 }
@@ -108,70 +118,49 @@ public class ProcessarMensagemSagaUseCase(
         return new ResultadoRecebimento(status, null, mensagem.MessageId, mensagem.CorrelationId, mensagem.MessageType);
     }
 
-    private async Task<Efeito> AplicarAsync(SagaOrdemServico saga, MensagemSaga mensagem, CancellationToken ct)
+    private static Efeito Aplicar(SagaOrdemServico saga, MensagemSaga mensagem)
     {
-        var causa = new Causa(mensagem.MessageType, mensagem.MessageId);
-        var id = mensagem.MessageId;
+        var c = new Causa(mensagem.MessageType, mensagem.MessageId);
 
-        switch (mensagem)
+        return mensagem switch
         {
-            case DiagnosisCompleted d:
-                var itens = d.Items.Select(i => new ItemDiagnostico(
-                    i.ItemId, Enum.Parse<TipoItemDiagnostico>(i.Type), i.Description, i.Quantity, i.UnitPrice));
-                return saga.RegistrarDiagnostico(causa, d.ExecutionId, d.Currency, d.PriceSnapshotAtUtc, itens)
-                    ? new Efeito(true, ComandoSaga.Orcamento(saga, id))
-                    : new Efeito(false);
+            DiagnosisCompleted d => new Efeito(saga.RegistrarDiagnostico(c, d.ExecutionId, d.Currency, d.PriceSnapshotAtUtc,
+                d.Items.Select(i => new ItemDiagnostico(i.ItemId, Enum.Parse<TipoItemDiagnostico>(i.Type), i.Description, i.Quantity, i.UnitPrice)))),
+            DiagnosisRejected r => new Efeito(saga.RejeitarDiagnostico(c, r.Reason)),
 
-            case DiagnosisRejected r:
-                return new Efeito(saga.RejeitarDiagnostico(causa, r.Reason));
+            QuoteReady q => new Efeito(saga.RegistrarOrcamento(c, q.QuoteId, q.QuoteVersion, q.Amount, q.Currency)),
+            QuoteRejected r => new Efeito(saga.RejeitarOrcamento(c, r.Reason)),
+            QuoteApproved q => new Efeito(saga.AprovarOrcamento(c, q.QuoteId, q.QuoteVersion)),
+            QuoteDeclined q => new Efeito(saga.EncerrarOrcamento(c, q.QuoteId, q.QuoteVersion, "Orçamento recusado pelo cliente.")),
+            QuoteExpired q => new Efeito(saga.EncerrarOrcamento(c, q.QuoteId, q.QuoteVersion, "Orçamento expirou sem decisão.")),
 
-            case QuoteReady q:
-                return new Efeito(saga.RegistrarOrcamento(causa, q.QuoteId, q.QuoteVersion, q.Amount, q.Currency));
+            // Reserva ou pagamento confirmados depois que a Saga terminou: desfazer para não prender estoque nem dinheiro.
+            InventoryReserved r when saga.Terminada =>
+                new Efeito(saga.RegistrarReservaAposEncerramento(c, r.ReservationId), [ComandoEtapa.Liberacao]),
+            InventoryReserved r => new Efeito(saga.RegistrarReserva(c, r.ReservationId)),
+            InventoryReservationRejected r => new Efeito(saga.RejeitarReserva(c, r.Reason)),
+            InventoryReleased r => new Efeito(saga.RegistrarLiberacao(c, r.ReservationId)),
 
-            case QuoteRejected r:
-                return new Efeito(saga.RejeitarOrcamento(causa, r.Reason));
+            PaymentApproved p when saga.Terminada =>
+                new Efeito(saga.RegistrarPagamentoAposEncerramento(c, p.PaymentId), [ComandoEtapa.Estorno]),
+            PaymentPending p => new Efeito(saga.RegistrarPagamentoPendente(c, p.PaymentId)),
+            PaymentApproved p => new Efeito(saga.AprovarPagamento(c, p.PaymentId, p.Amount, p.Currency)),
+            PaymentDeclined p => new Efeito(saga.RecusarPagamento(c, p.PaymentId, p.Reason)),
+            PaymentOutcomeUnknown p => new Efeito(saga.RegistrarResultadoDesconhecido(c, p.PaymentId, p.Reason)),
 
-            case QuoteApproved q:
-                if (!saga.AprovarOrcamento(causa, q.QuoteId, q.QuoteVersion))
-                    return new Efeito(false);
-                // Sem peças a Saga para em ação manual e não pede reserva.
-                return new Efeito(true, saga.Estado == EstadoSaga.ReservingInventory ? ComandoSaga.Reserva(saga, id) : null);
+            ExecutionStarted e => new Efeito(saga.RegistrarInicioExecucao(c, e.ExecutionId)),
+            ExecutionStartRejected e => new Efeito(saga.RejeitarInicioExecucao(c, e.ExecutionId, e.Reason)),
+            ExecutionCompleted e => new Efeito(saga.ConcluirExecucao(c, e.ExecutionId)),
+            ExecutionFailed e => new Efeito(saga.FalharExecucao(c, e.ExecutionId, e.Reason)),
+            ExecutionCancelled e => new Efeito(saga.RegistrarCancelamentoExecucao(c, e.ExecutionId)),
+            ExecutionCancelRejected e => new Efeito(saga.RecusarCancelamentoExecucao(c, e.ExecutionId, e.Reason)),
 
-            case QuoteDeclined q:
-                return new Efeito(saga.EncerrarOrcamento(causa, q.QuoteId, q.QuoteVersion, "Orçamento recusado pelo cliente."));
+            PaymentRefunded r => new Efeito(saga.RegistrarEstorno(c, r.PaymentId)),
+            PaymentRefundPending r => new Efeito(saga.RegistrarEstornoPendente(c, r.PaymentId)),
+            PaymentRefundFailed r => new Efeito(saga.FalharEstorno(c, r.PaymentId, r.Reason)),
 
-            case QuoteExpired q:
-                return new Efeito(saga.EncerrarOrcamento(causa, q.QuoteId, q.QuoteVersion, "Orçamento expirou sem decisão."));
-
-            case InventoryReserved r:
-                if (!saga.RegistrarReserva(causa, r.ReservationId))
-                    return new Efeito(false);
-                var cliente = await clientes.ObterPorIdAsync(saga.ClienteId, ct) ?? throw new NotFoundException("Cliente", saga.ClienteId);
-                return new Efeito(true, ComandoSaga.Pagamento(saga, id, cliente.Email));
-
-            case InventoryReservationRejected r:
-                return new Efeito(saga.RejeitarReserva(causa, r.Reason));
-
-            case PaymentPending p:
-                return new Efeito(saga.RegistrarPagamentoPendente(causa, p.PaymentId));
-
-            case PaymentApproved p:
-                if (!saga.AprovarPagamento(causa, p.PaymentId, p.Amount, p.Currency))
-                    return new Efeito(false);
-                // Valor divergente para em ação manual: a execução não começa.
-                return new Efeito(true, saga.Estado == EstadoSaga.StartingExecution ? ComandoSaga.InicioExecucao(saga, id) : null);
-
-            case ExecutionStarted e:
-                return new Efeito(saga.RegistrarInicioExecucao(causa, e.ExecutionId));
-
-            case ExecutionCompleted e:
-                return new Efeito(saga.ConcluirExecucao(causa, e.ExecutionId));
-
-            default:
-                // PaymentDeclined, PaymentOutcomeUnknown, ExecutionStartRejected, ExecutionFailed, InventoryReleased
-                // e eventos de estorno: tratamento no CARD-40b.
-                return new Efeito(false);
-        }
+            _ => new Efeito(false)
+        };
     }
 }
 
