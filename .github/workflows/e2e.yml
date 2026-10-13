@@ -1,0 +1,40 @@
+# BDD ponta a ponta (CARD-40c): OS, Billing e Operações com um RabbitMQ só, construídos a partir dos três
+# repositórios lado a lado. Usa o mesmo script da execução local.
+name: BDD ponta a ponta
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bdd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tech-challenge-os
+      - uses: actions/checkout@v4
+        with:
+          repository: LucazDenadai/tech-challenge-billing
+          path: tech-challenge-billing
+      - uses: actions/checkout@v4
+        with:
+          repository: LucazDenadai/tech-challenge-operacoes
+          path: tech-challenge-operacoes
+
+      - name: Rodar os cenários Gherkin
+        run: ./tech-challenge-os/e2e/executar.sh
+
+      - name: Publicar o relatório
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bdd-resultados
+          path: tech-challenge-os/e2e/resultados/
+          if-no-files-found: warn
