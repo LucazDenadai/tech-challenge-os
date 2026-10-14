@@ -37,7 +37,7 @@ builder.Logging.AddJsonConsole(o =>
 });
 
 // ── OpenTelemetry (traces OTLP, métricas Prometheus) ───────────────────────────
-builder.AddOpenTelemetry("OficinaMecanica.OS");
+builder.AddOpenTelemetry("os");
 
 // ── Infrastructure (banco OS, repositórios, JWT, e-mail) e consumidor da Saga ──
 builder.Services.AddInfrastructure(builder.Configuration);
