@@ -18,7 +18,7 @@ public readonly record struct Causa(string Tipo, Guid? MessageId)
 // Os comandos que cada etapa precisa vêm de ComandosDaEtapa, usado na transição, no reenvio por prazo e na retomada.
 public class SagaOrdemServico : EntityBase
 {
-    private static readonly EstadoSaga[] _terminais = [EstadoSaga.Completed, EstadoSaga.Cancelled, EstadoSaga.Compensated];
+    public static readonly EstadoSaga[] EstadosTerminais = [EstadoSaga.Completed, EstadoSaga.Cancelled, EstadoSaga.Compensated];
 
     // Estados que esperam resposta automática de um participante: têm prazo e reenvio (CARD-40b).
     public static readonly EstadoSaga[] EstadosComPrazo =
@@ -69,7 +69,7 @@ public class SagaOrdemServico : EntityBase
     private readonly List<TransicaoSaga> _transicoes = new();
     public IReadOnlyCollection<TransicaoSaga> Transicoes => _transicoes.AsReadOnly();
 
-    public bool Terminada => _terminais.Contains(Estado);
+    public bool Terminada => EstadosTerminais.Contains(Estado);
 
     // Peças a reservar em Operações: só itens do tipo Peca, somados por peça.
     public IReadOnlyList<(Guid PecaId, int Quantidade)> PecasParaReservar => _itens
