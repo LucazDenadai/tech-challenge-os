@@ -5,6 +5,7 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
 namespace OficinaMecanica.OS.IntegrationTests.Api;
@@ -20,6 +21,9 @@ public class OsApiFactory(string connectionString, IReadOnlyDictionary<string, s
 
     public string ConnectionString => connectionString;
 
+    // Captura opcional dos logs da API, para testes que verificam o conteúdo ou o escopo dos logs.
+    public ILoggerProvider? Logs { get; init; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Test");
@@ -34,6 +38,9 @@ public class OsApiFactory(string connectionString, IReadOnlyDictionary<string, s
 
         foreach (var (chave, valor) in extras ?? new Dictionary<string, string?>())
             builder.UseSetting(chave, valor);
+
+        if (Logs is not null)
+            builder.ConfigureLogging(l => l.AddProvider(Logs));
     }
 
     public async Task<HttpClient> ClienteFuncionarioAsync(string email)

@@ -23,6 +23,7 @@ public class ConsumidorSagaTests(PostgresFixture postgres) : IAsyncLifetime
         .WithPassword("os-teste-senha")
         .Build();
 
+    private readonly LogsCapturados _logs = new();
     private OsApiFactory _factory = null!;
     private SagaAberta _saga = null!;
     private IConnection _conexao = null!;
@@ -40,7 +41,7 @@ public class ConsumidorSagaTests(PostgresFixture postgres) : IAsyncLifetime
             ["RabbitMq:Port"] = uri.Port.ToString(),
             ["RabbitMq:Username"] = "os-teste",
             ["RabbitMq:Password"] = "os-teste-senha"
-        });
+        }) { Logs = _logs };
 
         // Readiness só fica 200 quando o consumidor declarou as filas e está consumindo.
         var http = _factory.CreateClient();
@@ -74,6 +75,21 @@ public class ConsumidorSagaTests(PostgresFixture postgres) : IAsyncLifetime
         Assert.Equal(Guid.Parse(mensagem["correlationId"]!.GetValue<string>()), registro.CorrelationId);
         Assert.Equal("PaymentApproved.v1", registro.MessageType);
         Assert.Equal(Exchange, registro.Canal);
+    }
+
+    // O escopo com o CorrelationId abre antes do caso de uso (CARD-42b): o log gravado durante o processamento
+    // também filtra pela Saga.
+    [Fact]
+    public async Task LogsDoProcessamento_LevamOCorrelationIdDaSaga()
+    {
+        var mensagem = PagamentoAprovado();
+
+        await PublicarAsync(mensagem);
+
+        await Aguardar(() => Task.FromResult(_logs.Contem("fora do fluxo da Saga")));
+        var aviso = _logs.Primeiro("fora do fluxo da Saga");
+        Assert.Equal(_saga.CorrelationId.ToString(), aviso.Escopo("CorrelationId"));
+        Assert.Equal(mensagem["messageId"]!.GetValue<string>(), aviso.Escopo("MessageId"));
     }
 
     [Fact]
@@ -142,9 +158,14 @@ public class ConsumidorSagaTests(PostgresFixture postgres) : IAsyncLifetime
         ["approvedAtUtc"] = "2026-10-07T12:01:00Z"
     };
 
+    // Propriedades como as do publicador dos serviços: messageId e correlationId também no envelope AMQP.
     private async Task PublicarAsync(JsonObject mensagem)
         => await _canal.BasicPublishAsync(Exchange, string.Empty, mandatory: false,
-            new BasicProperties { ContentType = "application/json", Persistent = true },
+            new BasicProperties
+            {
+                ContentType = "application/json", Persistent = true,
+                MessageId = mensagem["messageId"]?.GetValue<string>(), CorrelationId = mensagem["correlationId"]?.GetValue<string>()
+            },
             Encoding.UTF8.GetBytes(mensagem.ToJsonString()));
 
     private async Task<int> ContarInboxAsync()
