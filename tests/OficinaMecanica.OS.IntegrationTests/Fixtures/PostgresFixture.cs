@@ -7,10 +7,13 @@ namespace OficinaMecanica.OS.IntegrationTests.Fixtures;
 
 public class PostgresFixture : IAsyncLifetime
 {
+    // Um servidor para todos os testes, com um banco por teste: cada banco tem o próprio pool de conexões, e cada API
+    // de teste roda os serviços em segundo plano (prazos, estado das Sagas). O limite padrão de 100 conexões não basta.
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine")
         .WithDatabase("os_test")
         .WithUsername("postgres")
         .WithPassword("postgres")
+        .WithCommand("-c", "max_connections=300")
         .Build();
 
     public Task InitializeAsync() => _postgres.StartAsync();
