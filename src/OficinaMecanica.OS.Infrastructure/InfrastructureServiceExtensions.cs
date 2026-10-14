@@ -22,8 +22,10 @@ public static class InfrastructureServiceExtensions
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("Connection string 'DefaultConnection' não configurada.");
 
+        // O interceptor mede a duração das Sagas que terminam (CARD-42a); guarda o estado por DbContext, então uma instância serve a todos.
+        var metricasSaga = new MetricasSagaInterceptor();
         services.AddDbContext<AppDbContext>(options =>
-            options.UseNpgsql(connectionString));
+            options.UseNpgsql(connectionString).AddInterceptors(metricasSaga));
 
         services.AddScoped<IOrdemServicoRepository, OrdemServicoRepository>();
         services.AddScoped<IClienteRepository, ClienteRepository>();
@@ -42,6 +44,7 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton(configuracaoSaga);
         if (configuracaoSaga.VerificacaoHabilitada)
             services.AddHostedService<PrazosSagaHostedService>();
+        services.AddHostedService<EstadoSagasHostedService>();
 
         var usarEmailReal = configuration.GetValue<bool>("Smtp:Enabled");
         if (usarEmailReal)

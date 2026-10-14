@@ -31,8 +31,51 @@ public static class MetricasSaga
     private static readonly Counter<long> _mensagens = _medidor.CreateCounter<long>(
         "os_saga_mensagens", description: "Mensagens da Saga recebidas pelo OS, por tipo e resultado.");
 
+    // Da abertura da OS ao estado terminal; os limites dos baldes estão na configuração do OpenTelemetry (CARD-42a).
+    public const string NomeDuracao = "os_saga_duracao_segundos";
+
+    private static readonly Histogram<double> _duracao = _medidor.CreateHistogram<double>(
+        NomeDuracao, description: "Tempo da abertura da OS até o estado terminal da Saga, por estado final.");
+    private static readonly Counter<long> _reenvios = _medidor.CreateCounter<long>(
+        "os_saga_reenvios", description: "Reenvios de comandos por prazo vencido, por estado da Saga.");
+
+    // Retrato dos estados não terminais, atualizado por uma leitura periódica do banco.
+    private static volatile IReadOnlyCollection<EstadoAtual> _estados = [];
+
+    public sealed record EstadoAtual(EstadoSaga Estado, int Quantidade, double IdadeEtapaMaisAntigaSegundos);
+
+    static MetricasSaga()
+    {
+        _medidor.CreateObservableGauge("os_sagas_por_estado",
+            () => _estados.Select(e => new Measurement<long>(e.Quantidade, Rotulo(e.Estado))),
+            description: "Sagas em cada estado não terminal.");
+        _medidor.CreateObservableGauge("os_saga_idade_etapa_segundos",
+            () => _estados.Select(e => new Measurement<double>(e.IdadeEtapaMaisAntigaSegundos, Rotulo(e.Estado))),
+            description: "Há quanto tempo está a etapa mais antiga em cada estado não terminal (0 sem Sagas no estado).");
+    }
+
     public static void Mensagem(string messageType, StatusRecebimento resultado)
         => _mensagens.Add(1, new KeyValuePair<string, object?>("message_type", messageType), new KeyValuePair<string, object?>("resultado", resultado.ToString()));
+
+    public static void Encerrada(EstadoSaga estadoFinal, TimeSpan duracao)
+        => _duracao.Record(duracao.TotalSeconds, new KeyValuePair<string, object?>("estado_final", estadoFinal.ToString()));
+
+    public static void Reenvio(EstadoSaga estado) => _reenvios.Add(1, Rotulo(estado));
+
+    // Todos os estados não terminais aparecem, com zero quando vazios: o painel e os alertas não dependem de série ausente.
+    public static IReadOnlyCollection<EstadoAtual> AtualizarEstados(
+        IEnumerable<(EstadoSaga Estado, int Quantidade, DateTime EtapaMaisAntiga)> leitura, DateTime agora)
+    {
+        var porEstado = leitura.ToDictionary(l => l.Estado);
+        return _estados = Enum.GetValues<EstadoSaga>()
+            .Where(e => !SagaOrdemServico.EstadosTerminais.Contains(e))
+            .Select(e => porEstado.TryGetValue(e, out var l)
+                ? new EstadoAtual(e, l.Quantidade, Math.Max(0, (agora - l.EtapaMaisAntiga).TotalSeconds))
+                : new EstadoAtual(e, 0, 0))
+            .ToList();
+    }
+
+    private static KeyValuePair<string, object?> Rotulo(EstadoSaga estado) => new("estado", estado.ToString());
 }
 
 // Orquestrador da Saga (ADR-017, CARD-40a e CARD-40b). Valida a mensagem contra o contrato do canal e, em uma

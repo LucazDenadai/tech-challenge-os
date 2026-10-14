@@ -36,6 +36,8 @@ public class ConfiguracaoSaga
     public int MaxReenvios { get; set; } = 3;
     public bool VerificacaoHabilitada { get; set; } = true;
     public int IntervaloVerificacaoSegundos { get; set; } = 30;
+    // Leitura dos estados para as métricas (CARD-42a).
+    public int IntervaloMetricasSegundos { get; set; } = 30;
 
     public TimeSpan Prazo => TimeSpan.FromMinutes(PrazoRespostaMinutos);
 }

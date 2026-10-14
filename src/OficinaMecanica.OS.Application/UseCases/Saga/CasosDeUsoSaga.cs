@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using OficinaMecanica.OS.Application.Exceptions;
 using OficinaMecanica.OS.Application.Ports.Out;
+using OficinaMecanica.OS.Application.UseCases.Mensageria;
 using OficinaMecanica.OS.Domain.Saga;
 
 namespace OficinaMecanica.OS.Application.UseCases.Saga;
@@ -76,6 +77,7 @@ public class VerificarPrazoSagaUseCase(ISagaRepository sagas, GravacaoSaga grava
         if (saga.Reenvios < configuracao.MaxReenvios)
         {
             saga.RegistrarReenvio();
+            MetricasSaga.Reenvio(anterior);
             await gravacao.GravarAsync(saga, anterior, ct, saga.ComandosDaEtapa());
             logger.LogWarning("Prazo vencido em {Estado}; comandos reenviados ({Reenvios}). OsId={OsId}", anterior, saga.Reenvios, saga.OsId);
             return;
