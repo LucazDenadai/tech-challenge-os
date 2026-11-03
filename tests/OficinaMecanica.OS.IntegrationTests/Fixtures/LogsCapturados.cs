@@ -17,6 +17,8 @@ public sealed class LogsCapturados : ILoggerProvider, ISupportExternalScope
 
     public bool Contem(string trecho) => _logs.Any(l => l.Mensagem.Contains(trecho));
 
+    public int Contar(string trecho) => _logs.Count(l => l.Mensagem.Contains(trecho));
+
     public LogCapturado Primeiro(string trecho) => _logs.First(l => l.Mensagem.Contains(trecho));
 
     public ILogger CreateLogger(string categoryName) => new Registrador(this);
