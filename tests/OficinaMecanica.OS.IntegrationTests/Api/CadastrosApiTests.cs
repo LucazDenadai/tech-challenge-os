@@ -57,9 +57,8 @@ public class CadastrosApiTests : IAsyncLifetime
         Assert.False((await http.GetFromJsonAsync<JsonElement>($"/os/clientes/{id}")).GetProperty("ativo").GetBoolean());
     }
 
-    // Defeito encontrado no CARD-44: DocumentoExisteAsync só considera clientes ativos, então o ramo de reativação
-    // do caso de uso nunca roda e a API devolve 500 (índice único do documento). Correção depende de decisão do time.
-    [Fact(Skip = "CARD-44: reativação de cliente desativado devolve 500; aguarda decisão")]
+    // Defeito corrigido no CARD-44: DocumentoExisteAsync só considerava clientes ativos e a API devolvia 500.
+    [Fact]
     public async Task Cliente_DocumentoDeClienteDesativado_ReativaOCadastro()
     {
         var http = await _factory.ClienteFuncionarioAsync(Atendente);
@@ -110,9 +109,8 @@ public class CadastrosApiTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync($"/os/veiculos/{id}")).StatusCode);
     }
 
-    // Defeito encontrado no CARD-44: o [Authorize] da classe (Admin, Atendente) soma com o do método; o Mecânico recebe 403
-    // nas leituras que o método e o README liberam para ele. Correção depende de decisão do time.
-    [Fact(Skip = "CARD-44: Mecânico recebe 403 ao ler veículo; aguarda decisão")]
+    // Defeito corrigido no CARD-44: o [Authorize] da classe somava com o do método e o Mecânico recebia 403.
+    [Fact]
     public async Task Veiculo_MecanicoLeOVeiculo()
     {
         var atendente = await _factory.ClienteFuncionarioAsync(Atendente);
@@ -123,6 +121,14 @@ public class CadastrosApiTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.OK, (await mecanico.GetAsync($"/os/veiculos/{id}")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await mecanico.GetAsync($"/os/veiculos/cliente/{clienteId}")).StatusCode);
+        // As demais rotas continuam fechadas para o Mecânico.
+        Assert.Equal(HttpStatusCode.Forbidden, (await mecanico.GetAsync("/os/veiculos")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await mecanico.GetAsync($"/os/veiculos/cliente/documento/{CpfNovo}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await mecanico.PutAsJsonAsync($"/os/veiculos/{id}",
+            new { id, marca = "Fiat", modelo = "Uno", ano = 2015, cor = "Branco" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await mecanico.PostAsJsonAsync("/os/veiculos",
+            new { clienteId, placa = "TST5E67", marca = "Fiat", modelo = "Uno", ano = 2015, cor = "Branco" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await mecanico.DeleteAsync($"/os/veiculos/{id}")).StatusCode);
     }
 
     [Fact]
