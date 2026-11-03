@@ -6,7 +6,8 @@ namespace OficinaMecanica.OS.API.Adapters.In.Http;
 
 [ApiController]
 [Route("os/veiculos")]
-[Authorize(Roles = "Admin,Atendente")]
+// Atributos da classe e do método se somam: a classe admite o Mecânico, e cada rota restringe o que não é dele.
+[Authorize(Roles = "Admin,Atendente,Mecanico")]
 [ProducesResponseType(StatusCodes.Status401Unauthorized)]
 [ProducesResponseType(StatusCodes.Status403Forbidden)]
 public class VeiculosController : ControllerBase
@@ -17,6 +18,7 @@ public class VeiculosController : ControllerBase
 
     /// <summary>Lista todos os veículos.</summary>
     [HttpGet]
+    [Authorize(Roles = "Admin,Atendente")]
     [ProducesResponseType(typeof(IEnumerable<VeiculoResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> Listar(CancellationToken ct)
         => Ok(await _useCase.ObterTodosAsync(ct));
@@ -41,12 +43,14 @@ public class VeiculosController : ControllerBase
 
     /// <summary>Lista veículos de um cliente pelo CPF/CNPJ.</summary>
     [HttpGet("cliente/documento/{documento}")]
+    [Authorize(Roles = "Admin,Atendente")]
     [ProducesResponseType(typeof(IEnumerable<VeiculoResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> ObterPorDocumentoCliente(string documento, CancellationToken ct)
         => Ok(await _useCase.ObterPorDocumentoClienteAsync(documento, ct));
 
     /// <summary>Cadastra um novo veículo. Placa duplicada retorna 422.</summary>
     [HttpPost]
+    [Authorize(Roles = "Admin,Atendente")]
     [ProducesResponseType(typeof(IdResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -59,6 +63,7 @@ public class VeiculosController : ControllerBase
 
     /// <summary>Atualiza marca, modelo, ano e cor de um veículo.</summary>
     [HttpPut("{id:guid}")]
+    [Authorize(Roles = "Admin,Atendente")]
     [ProducesResponseType(typeof(VeiculoResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
