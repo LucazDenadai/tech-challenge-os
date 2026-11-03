@@ -192,7 +192,7 @@ public class ConsumidorSagaHostedService(
         }
     }
 
-    private static ActivityContext ExtrairContextoTrace(IReadOnlyBasicProperties propriedades)
+    internal static ActivityContext ExtrairContextoTrace(IReadOnlyBasicProperties propriedades)
     {
         var cabecalhos = propriedades.Headers;
         if (cabecalhos is null) return default;

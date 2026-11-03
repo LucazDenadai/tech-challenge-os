@@ -67,6 +67,52 @@ public class TelemetriaTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task SagaQueTerminaEmGravacaoSincrona_RegistraDuracao()
+    {
+        var (conn, osId) = await PrepararSagaAsync();
+        var medidas = new List<string?>();
+        using var ouvinte = Ouvir(MetricasSaga.NomeDuracao, (_, rotulos) => medidas.Add(Rotulo(rotulos, "estado_final")));
+
+        await using (var db = Contexto(conn))
+        {
+            var saga = (await new SagaRepository(db).ObterPorOsAsync(osId))!;
+            saga.RejeitarDiagnostico(new Causa("DiagnosisRejected.v1", Guid.NewGuid()), "Veículo sem defeito.");
+            db.SaveChanges();
+        }
+
+        Assert.Single(medidas, m => m == nameof(EstadoSaga.Cancelled));
+    }
+
+    // Um conflito de concorrência refaz a mensagem: a gravação que falhou não pode contar a duração.
+    [Fact]
+    public async Task GravacaoQueFalhaPorConflito_NaoContaADuracao()
+    {
+        var (conn, osId) = await PrepararSagaAsync();
+        var medidas = new List<string?>();
+        using var ouvinte = Ouvir(MetricasSaga.NomeDuracao, (_, rotulos) => medidas.Add(Rotulo(rotulos, "estado_final")));
+        await using var vencedora = Contexto(conn);
+        await using var perdedoraAssincrona = Contexto(conn);
+        await using var perdedoraSincrona = Contexto(conn);
+        var lidas = new[]
+        {
+            (await new SagaRepository(vencedora).ObterPorOsAsync(osId))!,
+            (await new SagaRepository(perdedoraAssincrona).ObterPorOsAsync(osId))!,
+            (await new SagaRepository(perdedoraSincrona).ObterPorOsAsync(osId))!
+        };
+        foreach (var saga in lidas)
+            saga.RejeitarDiagnostico(new Causa("DiagnosisRejected.v1", Guid.NewGuid()), "Veículo sem defeito.");
+
+        await vencedora.SaveChangesAsync();
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => perdedoraAssincrona.SaveChangesAsync());
+        Assert.Throws<DbUpdateConcurrencyException>(() => perdedoraSincrona.SaveChanges());
+
+        Assert.Single(medidas, m => m == nameof(EstadoSaga.Cancelled));
+    }
+
+    private static AppDbContext Contexto(string conn)
+        => new(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(conn).AddInterceptors(new MetricasSagaInterceptor()).Options);
+
+    [Fact]
     public async Task RetratoDosEstados_ContaSagasAtivasEIdadeDaEtapaMaisAntiga()
     {
         var (conn, _) = await PrepararSagaAsync();

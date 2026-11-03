@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using OficinaMecanica.OS.Application.Ports.Out;
 using OficinaMecanica.OS.Domain.Entities;
-using OficinaMecanica.OS.Domain.Enums;
 
 namespace OficinaMecanica.OS.Infrastructure.Adapters.Out.Persistence.Repositories;
 
@@ -50,22 +49,6 @@ public class OrdemServicoRepository : BaseRepository<OrdemServico>, IOrdemServic
             .Include(o => o.Veiculo)
             .Include(o => o.Historico)
             .FirstOrDefaultAsync(o => o.Numero == numero, ct);
-
-    public async Task<IEnumerable<OrdemServico>> ObterPorClienteAsync(Guid clienteId, CancellationToken ct = default)
-        => await _dbSet
-            .Include(o => o.Cliente)
-            .Include(o => o.Veiculo)
-            .Where(o => o.ClienteId == clienteId)
-            .OrderByDescending(o => o.DataAbertura)
-            .ToListAsync(ct);
-
-    public async Task<IEnumerable<OrdemServico>> ObterPorStatusAsync(StatusOrdemServico status, CancellationToken ct = default)
-        => await _dbSet
-            .Include(o => o.Cliente)
-            .Include(o => o.Veiculo)
-            .Where(o => o.Status == status)
-            .OrderByDescending(o => o.DataAbertura)
-            .ToListAsync(ct);
 
     public async Task<string> GerarNumeroAsync(CancellationToken ct = default)
     {
